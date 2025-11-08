@@ -1,0 +1,4 @@
+File,FileLength,MotionCutoff,FreezeThresh,MinFreezeDuration,bin,range(f),Motion,Freezing
+Freezing_animal.mpg,8952.0,10.0,200.0,15.0,1,"(0, 10)",501.5,0.0
+Freezing_animal.mpg,8952.0,10.0,200.0,15.0,2,"(10, 20)",689.0,0.0
+Freezing_animal.mpg,8952.0,10.0,200.0,15.0,3,"(20, 30)",879.2,0.0
