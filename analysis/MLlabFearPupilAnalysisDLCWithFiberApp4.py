@@ -1774,7 +1774,7 @@ class BaseAnalyzerApp:
         
         dialog = tk.Toplevel(self.root)
         dialog.title("Event-Activity & Heatmap Settings")
-        dialog.geometry("300x610")
+        dialog.geometry("300x690")
         dialog.transient(self.root)
         dialog.grab_set()
         
@@ -1930,6 +1930,14 @@ class BaseAnalyzerApp:
         smooth_window.insert(0, "11")
         smooth_window.grid(row=1, column=1, sticky="w", padx=5)
         
+        # DownSample options
+        downsample_frame = ttk.LabelFrame(main_frame, text="DownSample Options")
+        downsample_frame.pack(fill="x", padx=5, pady=5)
+        ttk.Label(downsample_frame, text="DownSmaple Rate:").grid(row=1, column=0, sticky="w", pady=5)
+        downsample_rate = ttk.Entry(downsample_frame, width=10)
+        downsample_rate.insert(0, "1")
+        downsample_rate.grid(row=1, column=1, sticky="w", padx=5)
+
         # Buttons
         btn_frame = ttk.Frame(main_frame)
         btn_frame.pack(fill="x", pady=10)
@@ -1971,7 +1979,8 @@ class BaseAnalyzerApp:
                         'post_window': float(post_entry.get()),
                         'smooth_method': smooth_var.get(),
                         'smooth_window': int(smooth_window.get()) if smooth_var.get() != "None" else None,
-                        'curve_spacing': spacing_var.get()
+                        'curve_spacing': spacing_var.get(),
+                        'downsample_rate': float(downsample_rate.get())
                     }
                 
                 self.plot_event_activity_and_heatmap(all_group_params, preview=False)
@@ -2022,7 +2031,7 @@ class BaseAnalyzerApp:
         
         dialog = tk.Toplevel(self.root)
         dialog.title("Experiment-Activity Settings")
-        dialog.geometry("300x550")
+        dialog.geometry("300x620")
         dialog.transient(self.root)
         dialog.grab_set()
         
@@ -2165,6 +2174,14 @@ class BaseAnalyzerApp:
         smooth_window = ttk.Entry(smooth_frame, width=10)
         smooth_window.insert(0, "11")
         smooth_window.grid(row=1, column=1, sticky="w", padx=5)
+
+        # DownSample options
+        downsample_frame = ttk.LabelFrame(main_frame, text="DownSample Options")
+        downsample_frame.pack(fill="x", padx=5, pady=5)
+        ttk.Label(downsample_frame, text="DownSmaple Rate:").grid(row=1, column=0, sticky="w", pady=5)
+        downsample_rate = ttk.Entry(downsample_frame, width=10)
+        downsample_rate.insert(0, "1")
+        downsample_rate.grid(row=1, column=1, sticky="w", padx=5)
         
         # Buttons
         btn_frame = ttk.Frame(main_frame)
@@ -2206,7 +2223,8 @@ class BaseAnalyzerApp:
                         'pre_window': float(pre_entry.get()),
                         'post_window': float(post_entry.get()),
                         'smooth_method': smooth_var.get(),
-                        'smooth_window': int(smooth_window.get()) if smooth_var.get() != "None" else None
+                        'smooth_window': int(smooth_window.get()) if smooth_var.get() != "None" else None,
+                        'downsample_rate': float(downsample_rate.get())
                     }
                 
                 self.plot_experiment_activity(all_group_params, preview=False)
@@ -2382,7 +2400,7 @@ class BaseAnalyzerApp:
                     if all_time_data:
                         max_time = max(all_time_data)
                         min_time = min(all_time_data)
-                        common_time = np.linspace(min_time, max_time, int((max_time - min_time) * fps_fiber))
+                        common_time = np.linspace(min_time, max_time, int((max_time - min_time) * fps_fiber / group_params['downsample_rate']))
                     else:
                         common_time = np.linspace(-group_params['pre_window'], group_params['post_window'], 100)
                 else:
@@ -2419,6 +2437,7 @@ class BaseAnalyzerApp:
                                 mean_response + vertical_offset - sem_response, 
                                 mean_response + vertical_offset + sem_response, 
                                 color=colors[event_idx], alpha=0.3)
+                    ax1.axhline(0 + vertical_offset, color='#888888', linestyle='--', linewidth=1)
                 
                 if sorted_event_labels:
                     ax1.set_xlim(common_time.min(), common_time.max())
@@ -2450,7 +2469,7 @@ class BaseAnalyzerApp:
                                                 label='Shock Start' if 'Shock Start' not in ax1.get_legend_handles_labels()[1] else "")
                     
                     ax1.axvline(0, color='#000000', linestyle='--', linewidth=1, label=f"{event_name} Start")
-                    ax1.axvline(duration, color='#000000', linestyle='--', linewidth=1, label=f'{event_name} End')
+                    ax1.axvline(duration, color='#000000', linestyle='--', linewidth=1, label=f'{event_name} End')      
                     ax1.set_xlabel("Time (s)")
                     ax1.set_ylabel("Z-Score")
                     ax1.set_title(f"Event-Related Activity - Group {group_name} ({event_name})")
@@ -2750,7 +2769,7 @@ class BaseAnalyzerApp:
                     all_time_data = [t for t, _ in all_dff_responses]
                     max_time = max([t[-1] for t in all_time_data])
                     min_time = min([t[0] for t in all_time_data])
-                    common_time = np.linspace(min_time, max_time, int((max_time - min_time) * fps_fiber))
+                    common_time = np.linspace(min_time, max_time, int((max_time - min_time) * fps_fiber / group_params['downsample_rate']))
                 else:
                     common_time = np.linspace(-group_params['pre_window'], group_params['post_window'], 100)
                 
@@ -2805,6 +2824,7 @@ class BaseAnalyzerApp:
                 
                 ax1.axvline(0, color='k', linestyle='--', linewidth=1, label=f'{event_name} Start')
                 ax1.axvline(duration, color='k', linestyle='--', linewidth=1, label=f'{event_name} End')
+                ax1.axhline(0, color='#888888', linestyle='--', linewidth=1)
                 ax1.set_xlim(common_time.min(), common_time.max())
                 ax1.set_ylabel("ΔF/F")
                 ax1.set_title(f"Experiment-Related Activity (ΔF/F) - Group {group_name} ({event_name})")
@@ -2849,6 +2869,7 @@ class BaseAnalyzerApp:
                 
                 ax2.axvline(0, color='k', linestyle='--', linewidth=1, label=f'{event_name} Start')
                 ax2.axvline(duration, color='k', linestyle='--', linewidth=1, label=f'{event_name} End')
+                ax2.axhline(0, color='#888888', linestyle='--', linewidth=1)
                 ax2.set_xlim(common_time.min(), common_time.max())
                 ax2.set_xlabel("Time (s)")
                 ax2.set_ylabel("Z-Score")
