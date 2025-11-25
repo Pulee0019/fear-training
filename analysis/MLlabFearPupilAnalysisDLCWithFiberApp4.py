@@ -541,7 +541,6 @@ class BaseAnalyzerApp:
             channels = {'time': time_col, 'events': events_col}
             
             channel_data = {}
-            available_wavelengths = set()
             channel_pattern = re.compile(r'CH(\d+)-(\d+)', re.IGNORECASE)
             
             for col in fiber_data.columns:
@@ -551,42 +550,27 @@ class BaseAnalyzerApp:
                     wavelength = int(match.group(2))
                     
                     if channel_num not in channel_data:
-                        channel_data[channel_num] = {}
+                        channel_data[channel_num] = {'410': None, '415': None, '470': None, '560': None}
                     
-                    channel_data[channel_num][str(wavelength)] = col
-                    if wavelength != 410:
-                        available_wavelengths.add(str(wavelength))
-                        
-            wavelength_combinations = self.generate_wavelength_combinations(available_wavelengths)
-
+                    if wavelength == 410 or wavelength == 415:
+                        channel_data[channel_num]['410' if wavelength == 410 else '415'] = col
+                    elif wavelength == 470:
+                        channel_data[channel_num]['470'] = col
+                    elif wavelength == 560:
+                        channel_data[channel_num]['560'] = col
+            
             self.set_status(f"Fiber data loaded, {len(channel_data)} channels detected")
             
             return {
                 'fiber_data': fiber_data,
                 'channels': channels,
-                'channel_data': channel_data,
-                'available_wavelengths': sorted(available_wavelengths),
-                'wavelength_combinations': wavelength_combinations
+                'channel_data': channel_data
             }
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load fiber data: {str(e)}")
             self.set_status("Fiber data load failed")
             return None
     
-    def generate_wavelength_combinations(self, wavelengths):
-        from itertools import combinations
-        wavelength_list = sorted(wavelengths)
-        combinations_list = []
-        
-        for wl in wavelength_list:
-            combinations_list.append(wl)
-        
-        for r in range(2, min(4, len(wavelength_list) + 1)):
-            for combo in combinations(wavelength_list, r):
-                combinations_list.append('+'.join(combo))
-        
-        return combinations_list
-
     def show_channel_selection_dialog(self):
         """Show dialog for channel selection with memory"""
         dialog = tk.Toplevel(self.root)
@@ -874,31 +858,6 @@ class BaseAnalyzerApp:
         except Exception as e:
             messagebox.showerror("Error", f"Failed to plot raw data: {str(e)}")
             self.set_status("Raw plot failed")
-    
-    def get_target_columns(self, animal_data, target_signal):
-        """Get target columns for each wavelength separately
-        Returns: list of (channel_num, wavelength, col_name) tuples
-        """
-        target_columns = []
-        
-        if '+' in target_signal:
-            # For combined wavelengths, return each wavelength separately
-            wavelengths = target_signal.split('+')
-            for channel_num in animal_data['active_channels']:
-                if channel_num in animal_data['channel_data']:
-                    for wl in wavelengths:
-                        col = animal_data['channel_data'][channel_num].get(wl)
-                        if col and col in animal_data.get('preprocessed_data', animal_data.get('fiber_cropped', pd.DataFrame())).columns:
-                            target_columns.append((channel_num, col, wl))
-        else:
-            # For single wavelength
-            for channel_num in animal_data['active_channels']:
-                if channel_num in animal_data['channel_data']:
-                    col = animal_data['channel_data'][channel_num].get(target_signal)
-                    if col and col in animal_data.get('preprocessed_data', animal_data.get('fiber_cropped', pd.DataFrame())).columns:
-                        target_columns.append((channel_num, col, target_signal))
-        
-        return target_columns
 
     def smooth_data(self):
         """Apply smoothing to selected animals with group-based visualization"""
@@ -910,7 +869,6 @@ class BaseAnalyzerApp:
         try:
             window_size = self.smooth_window.get()
             poly_order = self.smooth_order.get()
-            target_signal = self.target_signal_var.get()
             
             if window_size % 2 == 0:
                 window_size += 1
@@ -981,35 +939,32 @@ class BaseAnalyzerApp:
                     ax = fig.add_subplot(111)
                     
                     animal_data['preprocessed_data'] = animal_data['fiber_cropped'].copy()
-
-                    target_columns = self.get_target_columns(animal_data, target_signal)
-
-                    wavelength_colors = {
-                        '410': '#0000FF',  # Blue
-                        '470': '#00FF00',  # Green
-                        '560': '#FF0000',  # Red
-                    }
-
-                    for channel_num, cols, wavelength in target_columns:
-                            signal_data = animal_data['preprocessed_data'][cols]
-                            smoothed_col = f"CH{channel_num}_{wavelength}_smoothed"
-                            animal_data['preprocessed_data'][smoothed_col] = savgol_filter(
-                                signal_data, window_size, poly_order)
-                            
-                            time_col = animal_data['channels']['time']
-                            time_data = animal_data['preprocessed_data'][time_col] - animal_data['video_start_fiber']
-                            
-                            color = wavelength_colors.get(wavelength, "#808080")
-                            
-                            ax.plot(time_data, signal_data, 
-                                color=color, linewidth=2, alpha=0.5,
-                                label=f'CH{channel_num} {wavelength} nm raw')
-                            
-                            ax.plot(time_data, animal_data['preprocessed_data'][smoothed_col], 
-                                color=color, linewidth=2, alpha=0.8,
-                                label=f'CH{channel_num} {wavelength} nm smoothed')
+                    for channel_num in animal_data['active_channels']:
+                        if channel_num in animal_data['channel_data']:
+                            target_col = animal_data['channel_data'][channel_num].get(self.target_signal_var.get())
+                            if target_col and target_col in animal_data['preprocessed_data'].columns:
+                                smoothed_col = f"CH{channel_num}_{self.target_signal_var.get()}_smoothed"
+                                animal_data['preprocessed_data'][smoothed_col] = savgol_filter(
+                                    animal_data['preprocessed_data'][target_col], window_size, poly_order)
+                                
+                                # Plot smoothed data
+                                time_col = animal_data['channels']['time']
+                                time_data = animal_data['preprocessed_data'][time_col] - animal_data['video_start_fiber']
+                                
+                                # Use different colors for different channels
+                                colors = ["#48FF00", "#0AC400FF", "#00940F", "#0D6000", "#073B00"]
+                                color_idx = (channel_num - 1) % len(colors)
+                                color = colors[color_idx]
+                                
+                                ax.plot(time_data, animal_data['preprocessed_data'][target_col], 
+                                    color=color, linewidth=2, alpha=0.5,
+                                    label=f'CH{channel_num} raw')
+                                
+                                ax.plot(time_data, animal_data['preprocessed_data'][smoothed_col], 
+                                    color=color, linewidth=2, alpha=0.8,
+                                    label=f'CH{channel_num} smoothed')
                     
-                    ax.set_title(f"Smoothed Data - {animal_id} (Target: {target_signal})")
+                    ax.set_title(f"Smoothed Data - {animal_id} (window={window_size}, order={poly_order})")
                     ax.set_xlabel("Time (s)")
                     ax.set_ylabel("Signal Intensity")
                     ax.grid(False)
@@ -1036,7 +991,7 @@ class BaseAnalyzerApp:
 
                     canvas.draw()
                 
-            self.set_status(f"Data smoothed with window={window_size}, order={poly_order}, target={target_signal}")
+            self.set_status(f"Data smoothed with window={window_size}, order={poly_order}")
             messagebox.showinfo("Success", f"Smoothing applied to {len(selected_indices)} animals")
         except Exception as e:
             messagebox.showerror("Error", f"Smoothing failed: {str(e)}")
@@ -1051,7 +1006,6 @@ class BaseAnalyzerApp:
         
         try:
             model_type = self.baseline_model.get()
-            target_signal = self.target_signal_var.get()
             
             baseline_tab_index = None
             for i, tab in enumerate(self.plot_notebook.tabs()):
@@ -1124,22 +1078,19 @@ class BaseAnalyzerApp:
                     time_col = animal_data['channels']['time']
                     time_data = animal_data['preprocessed_data'][time_col] - animal_data['video_start_fiber']
                     full_time = time_data.values
-
-                    target_columns = self.get_target_columns(animal_data, target_signal)
-
-                    wavelength_colors = {
-                        '410': '#0000FF',
-                        '470': '#00FF00',
-                        '560': '#FF0000',
-                    }
                     
-                    for channel_num, cols, wavelength in target_columns:
-                        if cols:
-                            if f"CH{channel_num}_{wavelength}_smoothed" in animal_data['preprocessed_data'].columns:
-                                signal_col = f"CH{channel_num}_{wavelength}_smoothed"
-                                signal_data = animal_data['preprocessed_data'][signal_col].values
+                    for channel_num in animal_data['active_channels']:
+                        if channel_num in animal_data['channel_data']:
+                            target_col = animal_data['channel_data'][channel_num].get(self.target_signal_var.get())
+                            if not target_col or target_col not in animal_data['preprocessed_data'].columns:
+                                continue
+
+                            if f"CH{channel_num}_{self.target_signal_var.get()}_smoothed" in animal_data['preprocessed_data'].columns:
+                                signal_col = f"CH{channel_num}_{self.target_signal_var.get()}_smoothed"
                             else:
-                                signal_data = animal_data['preprocessed_data'][cols].values
+                                signal_col = target_col
+
+                            signal_data = animal_data['preprocessed_data'][signal_col].values
                             
                             if model_type.lower() == "exponential":
                                 def exp_model(t, a, b, c):
@@ -1165,31 +1116,34 @@ class BaseAnalyzerApp:
                                 model.fit(X, signal_data)
                                 baseline_pred = model.predict(X)
                             
-                            baseline_corrected_col = f"CH{channel_num}_{wavelength}_baseline_corrected"
+                            baseline_corrected_col = f"CH{channel_num}_baseline_corrected"
                             animal_data['preprocessed_data'][baseline_corrected_col] = signal_data - baseline_pred
-                            animal_data['preprocessed_data'][f"CH{channel_num}_{wavelength}_baseline_pred"] = baseline_pred
+                            animal_data['preprocessed_data'][f"CH{channel_num}_baseline_pred"] = baseline_pred
                             
-                            color = wavelength_colors.get(wavelength, "#808080")
+                            # Plot baseline corrected data and baseline fit
+                            colors = ["#48FF00", "#0AC400FF", "#00940F", "#0D6000", "#073B00"]
+                            color_idx = (channel_num - 1) % len(colors)
+                            color = colors[color_idx]
                             
-                            # Plot each wavelength separately
-                            if f"CH{channel_num}_{wavelength}_smoothed" in animal_data['preprocessed_data'].columns:
-                                ax.plot(time_data, animal_data['preprocessed_data'][f"CH{channel_num}_{wavelength}_smoothed"], 
+                            if f"CH{channel_num}_{self.target_signal_var.get()}_smoothed" in animal_data['preprocessed_data'].columns:
+                                ax.plot(time_data, animal_data['preprocessed_data'][f"CH{channel_num}_{self.target_signal_var.get()}_smoothed"], 
                                     color=color, linewidth=2, alpha=0.5,
-                                    label=f'CH{channel_num} {wavelength}nm smoothed')
+                                    label=f'CH{channel_num} smoothed')
                             else:
-                                ax.plot(time_data, animal_data['preprocessed_data'][cols[0]], 
+                                ax.plot(time_data, animal_data['preprocessed_data'][target_col], 
                                     color=color, linewidth=2, alpha=0.5,
-                                    label=f'CH{channel_num} {wavelength}nm raw')
+                                    label=f'CH{channel_num} raw')
                                 
                             ax.plot(time_data, animal_data['preprocessed_data'][baseline_corrected_col], 
                                 color=color, linewidth=2, alpha=0.8,
-                                label=f'CH{channel_num} {wavelength}nm baseline corrected')
+                                label=f'CH{channel_num} baseline corrected')
                             
+                            # Also plot the baseline
                             ax.plot(time_data, baseline_pred, 
                                 color=color, linestyle='--', alpha=0.5,
-                                label=f'CH{channel_num} {wavelength}nm baseline fit')
+                                label=f'CH{channel_num} baseline fit')
                     
-                    ax.set_title(f"Baseline Correction - {animal_id} ({model_type} model, Target: {target_signal})")
+                    ax.set_title(f"Baseline Correction - {animal_id} ({model_type} model)")
                     ax.set_xlabel("Time (s)")
                     ax.set_ylabel("Signal Intensity")
                     ax.grid(False)
@@ -1216,7 +1170,7 @@ class BaseAnalyzerApp:
 
                     canvas.draw()
                 
-            self.set_status(f"Baseline correction applied ({model_type} model, target: {target_signal})")
+            self.set_status(f"Baseline correction applied ({model_type} model)")
             messagebox.showinfo("Success", f"Baseline correction applied to {len(selected_indices)} animals")
         except Exception as e:
             messagebox.showerror("Error", f"Baseline correction failed: {str(e)}")
@@ -1254,8 +1208,6 @@ class BaseAnalyzerApp:
             if default_tab_index is not None:
                 self.plot_notebook.forget(default_tab_index)
                 
-            target_signal = self.target_signal_var.get()
-
             # Group animals by group
             groups = {}
             for idx in selected_indices:
@@ -1304,78 +1256,64 @@ class BaseAnalyzerApp:
                     if animal_data.get('preprocessed_data') is None:
                         animal_data['preprocessed_data'] = animal_data['fiber_cropped'].copy()
                     
-                    target_columns = self.get_target_columns(animal_data, target_signal)
-                    ref_columns = self.get_target_columns(animal_data, "410")
-
-                    wavelength_colors = {
-                        '410': '#0000FF',
-                        '470': '#00FF00',
-                        '560': '#FF0000',
-                    }
-
-                    for channel_num, target_cols, target_wavelength in target_columns:
-                        if not target_cols:
-                            continue
-                        
-                        ref_cols = None
-                        for ref_channel, refs, cols in ref_columns:
-                            if ref_channel == channel_num and cols == '410':
-                                ref_cols = refs
-                                break
-                        
-                        if not ref_cols:
-                            continue
-                        
-                        # Get signal data for this specific wavelength
-                        if f"CH{channel_num}_{target_wavelength}_baseline_corrected" in animal_data['preprocessed_data'].columns:
-                            signal_col = f"CH{channel_num}_{target_wavelength}_baseline_corrected"
+                    for channel_num in animal_data['active_channels']:
+                        if channel_num in animal_data['channel_data']:
+                            ref_col = animal_data['channel_data'][channel_num].get('410')
+                            if not ref_col or ref_col not in animal_data['preprocessed_data'].columns:
+                                continue
+                            
+                            target_col = animal_data['channel_data'][channel_num].get(self.target_signal_var.get())
+                            if not target_col or target_col not in animal_data['preprocessed_data'].columns:
+                                continue
+                            
+                            if f"CH{channel_num}_baseline_corrected" in animal_data['preprocessed_data'].columns:
+                                signal_col = f"CH{channel_num}_baseline_corrected"
+                            elif f"CH{channel_num}_{self.target_signal_var.get()}_smoothed" in animal_data['preprocessed_data'].columns:
+                                signal_col = f"CH{channel_num}_{self.target_signal_var.get()}_smoothed"
+                            else:
+                                signal_col = target_col
+                            
                             signal_data = animal_data['preprocessed_data'][signal_col]
-                        elif f"CH{channel_num}_{target_wavelength}_smoothed" in animal_data['preprocessed_data'].columns:
-                            signal_col = f"CH{channel_num}_{target_wavelength}_smoothed"
-                            signal_data = animal_data['preprocessed_data'][signal_col]
-                        else:
-                            signal_data = animal_data['preprocessed_data'][target_cols[0]]
-                        
-                        ref_data = animal_data['preprocessed_data'][ref_cols]
-                        
-                        X = ref_data.values.reshape(-1, 1)
-                        y = signal_data.values
-                        model = LinearRegression()
-                        model.fit(X, y)
-                        
-                        predicted_signal = model.predict(X)
-                        
-                        # Store motion corrected for each wavelength separately
-                        motion_corrected_col = f"CH{channel_num}_{target_wavelength}_motion_corrected"
-                        animal_data['preprocessed_data'][motion_corrected_col] = signal_data - predicted_signal
-                        fitted_ref_col = f"CH{channel_num}_{target_wavelength}_fitted_ref"
-                        animal_data['preprocessed_data'][fitted_ref_col] = predicted_signal
-                        
-                        time_col = animal_data['channels']['time']
-                        time_data = animal_data['preprocessed_data'][time_col] - animal_data['video_start_fiber']
-                        
-                        color = wavelength_colors.get(target_wavelength, "#808080")
-                        
-                        # Plot original signal
-                        if f"CH{channel_num}_{target_wavelength}_baseline_corrected" in animal_data['preprocessed_data'].columns:
-                            ax.plot(time_data, animal_data['preprocessed_data'][f"CH{channel_num}_{target_wavelength}_baseline_corrected"], 
-                                color=color, linewidth=2, alpha=0.5,
-                                label=f'CH{channel_num} {target_wavelength}nm baseline corrected')
-                        elif f"CH{channel_num}_{target_wavelength}_smoothed" in animal_data['preprocessed_data'].columns:
-                            ax.plot(time_data, animal_data['preprocessed_data'][f"CH{channel_num}_{target_wavelength}_smoothed"], 
-                                color=color, linewidth=2, alpha=0.5,
-                                label=f'CH{channel_num} {target_wavelength}nm smoothed')
-                        else:
-                            ax.plot(time_data, animal_data['preprocessed_data'][target_cols[0]], 
-                                color=color, linewidth=2, alpha=0.5,
-                                label=f'CH{channel_num} {target_wavelength}nm raw')
+                            ref_data = animal_data['preprocessed_data'][ref_col]
+                            
+                            X = ref_data.values.reshape(-1, 1)
+                            y = signal_data.values
+                            model = LinearRegression()
+                            model.fit(X, y)
+                            
+                            predicted_signal = model.predict(X)
+                            
+                            motion_corrected_col = f"CH{channel_num}_motion_corrected"
+                            animal_data['preprocessed_data'][motion_corrected_col] = signal_data - predicted_signal
+                            fitted_ref_col = f"CH{channel_num}_fitted_ref"
+                            animal_data['preprocessed_data'][fitted_ref_col] = predicted_signal
+                            
+                            # Plot motion corrected data
+                            time_col = animal_data['channels']['time']
+                            time_data = animal_data['preprocessed_data'][time_col] - animal_data['video_start_fiber']
+                            
+                            colors = ["#48FF00", "#0AC400FF", "#00940F", "#0D6000", "#073B00"]
+                            color_idx = (channel_num - 1) % len(colors)
+                            color = colors[color_idx]
+                            
+                            if f"CH{channel_num}_baseline_corrected" in animal_data['preprocessed_data'].columns:
+                                ax.plot(time_data, animal_data['preprocessed_data'][f"CH{channel_num}_baseline_corrected"], 
+                                    color=color, linewidth=2, alpha=0.5,
+                                    label=f'CH{channel_num} baseline corrected')
+                            elif f"CH{channel_num}_{self.target_signal_var.get()}_smoothed" in animal_data['preprocessed_data'].columns:
+                                ax.plot(time_data, animal_data['preprocessed_data'][f"CH{channel_num}_{self.target_signal_var.get()}_smoothed"], 
+                                    color=color, linewidth=2, alpha=0.5,
+                                    label=f'CH{channel_num} smoothed')
+                            else:
+                                ax.plot(time_data, animal_data['preprocessed_data'][target_col], 
+                                    color=color, linewidth=2, alpha=0.5,
+                                    label=f'CH{channel_num} raw')
 
-                        # Plot motion corrected
-                        ax.plot(time_data, animal_data['preprocessed_data'][motion_corrected_col], 
-                            color=color, linewidth=2, alpha=0.8,
-                            label=f'CH{channel_num} {target_wavelength}nm motion corrected')
+                            ax.plot(time_data, animal_data['preprocessed_data'][motion_corrected_col], 
+                                color=color, linewidth=2, alpha=0.8,
+                                label=f'CH{channel_num} motion corrected')
                     
-                    ax.set_title(f"Motion Correction - {animal_id} (Target: {target_signal})")
+                    ax.set_title(f"Motion Correction - {animal_id}")
                     ax.set_xlabel("Time (s)")
                     ax.set_ylabel("Signal Intensity")
                     ax.grid(False)
@@ -1402,7 +1340,7 @@ class BaseAnalyzerApp:
 
                     canvas.draw()
                 
-            self.set_status(f"Motion correction applied (target: {target_signal})")
+            self.set_status("Motion correction applied")
             messagebox.showinfo("Success", f"Motion correction applied to {len(selected_indices)} animals")
         except Exception as e:
             messagebox.showerror("Error", f"Motion correction failed: {str(e)}")
@@ -1438,9 +1376,6 @@ class BaseAnalyzerApp:
             return
         
         try:
-            target_signal = self.target_signal_var.get()
-            ref_wavelength = self.reference_signal_var.get()
-
             dff_tab_index = None
             for i, tab in enumerate(self.plot_notebook.tabs()):
                 tab_text = self.plot_notebook.tab(tab, "text")
@@ -1518,62 +1453,58 @@ class BaseAnalyzerApp:
                     if not any(baseline_mask):
                         continue
                         
-                    target_columns = self.get_target_columns(animal_data, target_signal)
-
-                    for channel_num, cols, wavelength in target_columns:
-                        if not cols:
-                            continue
-                        
-                        if f"CH{channel_num}_{wavelength}_motion_corrected" in animal_data['preprocessed_data'].columns:
-                            raw_target = animal_data['preprocessed_data'][f"CH{channel_num}_{wavelength}_motion_corrected"]
-                        elif f"CH{channel_num}_{wavelength}_baseline_corrected" in animal_data['preprocessed_data'].columns:
-                            raw_target = animal_data['preprocessed_data'][f"CH{channel_num}_{wavelength}_baseline_corrected"]
-                        elif f"CH{channel_num}_{wavelength}_smoothed" in animal_data['preprocessed_data'].columns:
-                            raw_target = animal_data['preprocessed_data'][f"CH{channel_num}_{wavelength}_smoothed"]
-                        else:
-                            raw_target = animal_data['preprocessed_data'][cols[0]]
-                        
-                        median_full = np.median(raw_target)
-                        
-                        if ref_wavelength == "410" and self.apply_motion.get():
-                            if f"CH{channel_num}_{wavelength}_motion_corrected" in animal_data['preprocessed_data'].columns:
-                                motion_corrected = animal_data['preprocessed_data'][f"CH{channel_num}_{wavelength}_motion_corrected"]
-                                dff_data = motion_corrected / median_full
-                            else:
+                    for channel_num in animal_data['active_channels']:
+                        if channel_num in animal_data['channel_data']:
+                            ref_wavelength = self.reference_signal_var.get()
+                            target_col = animal_data['channel_data'][channel_num].get(self.target_signal_var.get())
+                            if not target_col or target_col not in animal_data['preprocessed_data'].columns:
                                 continue
-                        elif ref_wavelength == "410" and not self.apply_baseline.get():
-                            if f"CH{channel_num}_{wavelength}_fitted_ref" in animal_data['preprocessed_data'].columns:
-                                fitted_ref = animal_data['preprocessed_data'][f"CH{channel_num}_{wavelength}_fitted_ref"]
-                                dff_data = (raw_target - fitted_ref) / fitted_ref
+                            
+                            if f"CH{channel_num}_{self.target_signal_var.get()}_smoothed" in animal_data['preprocessed_data'].columns:
+                                raw_col = f"CH{channel_num}_{self.target_signal_var.get()}_smoothed"
                             else:
-                                continue
-                        elif ref_wavelength == "baseline" and self.apply_baseline.get():
-                            if f"CH{channel_num}_{wavelength}_baseline_pred" in animal_data['preprocessed_data'].columns:
-                                baseline_fitted = animal_data['preprocessed_data'][f"CH{channel_num}_{wavelength}_baseline_pred"]
+                                raw_col = target_col
+                            
+                            raw_target = animal_data['preprocessed_data'][raw_col]
+                            median_full = np.median(raw_target)
+                            
+                            if ref_wavelength == "410" and self.apply_baseline.get():
+                                if f"CH{channel_num}_motion_corrected" in animal_data['preprocessed_data'].columns:
+                                    motion_corrected = animal_data['preprocessed_data'][f"CH{channel_num}_motion_corrected"]
+                                    dff_data = motion_corrected / median_full
+                                else:
+                                    continue
+                            elif ref_wavelength == "410" and not self.apply_baseline.get():
+                                if f"CH{channel_num}_fitted_ref" in animal_data['preprocessed_data'].columns:
+                                    fitted_ref = animal_data['preprocessed_data'][f"CH{channel_num}_fitted_ref"]
+                                    dff_data = (raw_target - fitted_ref) / fitted_ref
+                                else:
+                                    continue
+                            elif ref_wavelength == "baseline" and self.apply_baseline.get():
+                                if f"CH{channel_num}_baseline_pred" in animal_data['preprocessed_data'].columns:
+                                    baseline_fitted = animal_data['preprocessed_data'][f"CH{channel_num}_baseline_pred"]
+                                    baseline_median = np.median(raw_target[baseline_mask])
+                                    dff_data = (raw_target - baseline_fitted) / baseline_median
+                                else:
+                                    continue
+                            elif ref_wavelength == "baseline" and not self.apply_baseline.get():
                                 baseline_median = np.median(raw_target[baseline_mask])
-                                dff_data = (raw_target - baseline_fitted) / baseline_median
+                                dff_data = (raw_target - baseline_median) / baseline_median
                             else:
-                                continue
-                        elif ref_wavelength == "baseline" and not self.apply_baseline.get():
-                            baseline_median = np.median(raw_target[baseline_mask])
-                            dff_data = (raw_target - baseline_median) / baseline_median
-                        else:
-                            dff_data = (raw_target - median_full) / median_full
-                        
-                        animal_data['dff_data'][f"{channel_num}_{wavelength}"] = dff_data
-                        
-                        wavelength_colors = {
-                            '410': '#0000FF',
-                            '470': '#00FF00',
-                            '560': '#FF0000',
-                        }
-                        color = wavelength_colors.get(wavelength, "#808080")
-                        
-                        ax.plot(time_data, dff_data, 
-                            color=color, linewidth=2, alpha=0.8,
-                            label=f'CH{channel_num} {wavelength} nm dF/F')
+                                dff_data = (raw_target - median_full) / median_full
+                            
+                            animal_data['dff_data'][channel_num] = dff_data
+                            
+                            # Plot dF/F data
+                            colors = ["#48FF00", "#0AC400FF", "#00940F", "#0D6000", "#073B00"]
+                            color_idx = (channel_num - 1) % len(colors)
+                            color = colors[color_idx]
+                            
+                            ax.plot(time_data, dff_data, 
+                                color=color, linewidth=2, alpha=0.8,
+                                label=f'CH{channel_num} dF/F')
                     
-                    ax.set_title(f"ΔF/F - {animal_id} (Target: {target_signal})")
+                    ax.set_title(f"ΔF/F - {animal_id}")
                     ax.set_xlabel("Time (s)")
                     ax.set_ylabel("ΔF/F")
                     ax.grid(False)
@@ -1600,7 +1531,7 @@ class BaseAnalyzerApp:
 
                     canvas.draw()
                 
-            self.set_status(f"dF/F calculated and plotted (target: {target_signal})")
+            self.set_status("dF/F calculated and plotted")
             messagebox.showinfo("Success", f"dF/F calculated for {len(selected_indices)} animals")
         except Exception as e:
             messagebox.showerror("Error", f"dF/F calculation failed: {str(e)}")
@@ -1634,8 +1565,6 @@ class BaseAnalyzerApp:
             if default_tab_index is not None:
                 self.plot_notebook.forget(default_tab_index)
                 
-            target_signal = self.target_signal_var.get()
-
             # Group animals by group
             groups = {}
             for idx in selected_indices:
@@ -1691,34 +1620,30 @@ class BaseAnalyzerApp:
                     if not any(baseline_mask):
                         continue
                         
-                    target_columns = self.get_target_columns(animal_data, target_signal)
-
-                    for channel_num, cols, wavelength in target_columns:
-                        if not cols:
-                            continue
-                        
-                        dff_key = f"{channel_num}_{wavelength}"
-                        dff_data = animal_data['dff_data'].get(dff_key)
-                        if dff_data is None:
-                            continue
-                        
-                        baseline_values = dff_data[baseline_mask]
-                        baseline_mean = np.mean(baseline_values)
-                        baseline_std = np.std(baseline_values)
-                        
-                        if baseline_std > 0:
-                            zscore_data = (dff_data - baseline_mean) / baseline_std
-                            animal_data['zscore_data'][dff_key] = zscore_data
+                    for channel_num in animal_data['active_channels']:
+                        if channel_num in animal_data['channel_data']:
+                            dff_data = animal_data['dff_data'].get(channel_num)
+                            if dff_data is None:
+                                continue
                             
-                            colors = ["#48FF00", "#0AC400FF", "#00940F", "#0D6000", "#073B00"]
-                            color_idx = (channel_num - 1) % len(colors)
-                            color = colors[color_idx]
+                            baseline_values = dff_data[baseline_mask]
+                            baseline_mean = np.mean(baseline_values)
+                            baseline_std = np.std(baseline_values)
                             
-                            ax.plot(time_data, zscore_data, 
-                                color=color, linewidth=2, alpha=0.8,
-                                label=f'CH{channel_num} {wavelength} nm Z-score')
+                            if baseline_std > 0:
+                                zscore_data = (dff_data - baseline_mean) / baseline_std
+                                animal_data['zscore_data'][channel_num] = zscore_data
+                                
+                                # Plot Z-score data
+                                colors = ["#48FF00", "#0AC400FF", "#00940F", "#0D6000", "#073B00"]
+                                color_idx = (channel_num - 1) % len(colors)
+                                color = colors[color_idx]
+                                
+                                ax.plot(time_data, zscore_data, 
+                                    color=color, linewidth=2, alpha=0.8,
+                                    label=f'CH{channel_num} Z-score')
                     
-                    ax.set_title(f"Z-score - {animal_id} (Target: {target_signal})")
+                    ax.set_title(f"Z-score - {animal_id}")
                     ax.set_xlabel("Time (s)")
                     ax.set_ylabel("Z-score")
                     ax.grid(False)
@@ -1746,7 +1671,7 @@ class BaseAnalyzerApp:
 
                     canvas.draw()
                 
-            self.set_status(f"Z-score calculated and plotted (target: {target_signal})")
+            self.set_status("Z-score calculated and plotted")
             messagebox.showinfo("Success", f"Z-score calculated for {len(selected_indices)} animals")
         except Exception as e:
             messagebox.showerror("Error", f"Z-score calculation failed: {str(e)}")
@@ -2316,13 +2241,12 @@ class BaseAnalyzerApp:
         btn_frame.grid_columnconfigure(1, weight=1)
 
     def plot_event_activity_and_heatmap(self, all_group_params, preview=False):
-        """Plot event-related activity and heatmap - each wavelength separately"""
+        """Plot event-related activity and single heatmap with group-based visualization - updated for multi-group support"""
         selected_indices = self.file_listbox.curselection()
         if not selected_indices:
             return
         
         try:
-            # Clear existing tabs
             event_activity_tab_index = None
             for i, tab in enumerate(self.plot_notebook.tabs()):
                 tab_text = self.plot_notebook.tab(tab, "text")
@@ -2346,8 +2270,6 @@ class BaseAnalyzerApp:
             event_activity_tab = ttk.Frame(self.plot_notebook)
             self.plot_notebook.add(event_activity_tab, text="event activity")
             
-            target_signal = self.target_signal_var.get()
-
             # Group animals by group
             groups = {}
             for idx in selected_indices:
@@ -2359,13 +2281,6 @@ class BaseAnalyzerApp:
             
             group_notebook = ttk.Notebook(event_activity_tab)
             group_notebook.pack(fill="both", expand=True, padx=5, pady=5)
-
-            # Define wavelength colors
-            wavelength_colors = {
-                '410': '#0000FF',
-                '470': '#00FF00',
-                '560': '#FF0000',
-            }
 
             # Process each group that has parameters
             for group_name, group_params in all_group_params.items():
@@ -2392,8 +2307,8 @@ class BaseAnalyzerApp:
                 ax1 = fig.add_subplot(2, 1, 1)  # Event-related activity
                 ax2 = fig.add_subplot(2, 1, 2)  # Heatmap
                 
-                # Collect data for this group - NOW SEPARATED BY WAVELENGTH
-                all_event_responses = {}  # key: (event_label, wavelength), value: list of (time, zscore)
+                # Collect data for this group
+                all_event_responses = {}
                 heatmap_data = []
                 heatmap_y_labels = []
                 event_boundaries = []
@@ -2419,7 +2334,9 @@ class BaseAnalyzerApp:
                 for event_label in sorted_event_labels:
                     event_idx = selected_event_indices[event_label]
                     
-                    # Collect all responses for this event - SEPARATED BY WAVELENGTH
+                    # Collect all responses for this event (all animals and channels)
+                    event_responses = []
+                    
                     for animal_data in group_animals:
                         if 'dff_data' not in animal_data or 'event_data' not in animal_data:
                             continue
@@ -2442,18 +2359,13 @@ class BaseAnalyzerApp:
                             end_time = event['end_time']
                         
                         duration = end_time - start_time
-
-                        target_columns = self.get_target_columns(animal_data, target_signal)
                         
-                        # Collect responses for each wavelength SEPARATELY
-                        for channel_num, cols, wavelength in target_columns:
-                            if not cols:
+                        # Collect responses for all channels for this animal
+                        for channel_num in animal_data['active_channels']:
+                            if channel_num not in animal_data['dff_data']:
                                 continue
                             
-                            dff_key = f"{channel_num}_{wavelength}"
-                            dff_data = animal_data['dff_data'].get(dff_key)
-                            if dff_data is None:
-                                continue
+                            dff_data = animal_data['dff_data'][channel_num]
                             
                             event_time_rel, event_zscore, _ = self.compute_event_zscore_from_dff(
                                 dff_data, time_data, start_time, end_time,
@@ -2461,19 +2373,21 @@ class BaseAnalyzerApp:
                             )
                             
                             if len(event_time_rel) > 0:
+                                # Apply smoothing if requested
                                 if group_params['smooth_method'] == "Moving Average":
                                     kernel = np.ones(group_params['smooth_window']) / group_params['smooth_window']
                                     event_zscore = np.convolve(event_zscore, kernel, mode='same')
                                 elif group_params['smooth_method'] == "Savitzky-Golay":
                                     event_zscore = savgol_filter(event_zscore, group_params['smooth_window'], 3)
                                 
-                                # Store by (event_label, wavelength) key
-                                key = (event_label, wavelength)
-                                if key not in all_event_responses:
-                                    all_event_responses[key] = []
-                                all_event_responses[key].append((event_time_rel, event_zscore))
+                                event_responses.append((event_time_rel, event_zscore))
+                    
+                    # Store responses for this event
+                    if event_responses:
+                        all_event_responses[event_label] = event_responses
                 
-                # Plot event-related activity (mean ± SEM for each event and wavelength)
+                # Plot event-related activity (mean ± SEM for each event)
+                colors = plt.cm.tab10(np.linspace(0, 1, len(sorted_event_labels)))
                 curve_spacing = group_params.get('curve_spacing', 5.0)
                 
                 # Calculate common time using fps_fiber
@@ -2492,56 +2406,43 @@ class BaseAnalyzerApp:
                 else:
                     common_time = np.linspace(-group_params['pre_window'], group_params['post_window'], 100)
                 
-                # Plot each event-wavelength combination
-                plot_idx = 0
-                for event_label in sorted_event_labels:
-                    # Get all wavelengths for this event
-                    wavelengths_in_event = set()
-                    for key in all_event_responses.keys():
-                        if key[0] == event_label:
-                            wavelengths_in_event.add(key[1])
+                for event_idx, event_label in enumerate(sorted_event_labels):
+                    if event_label not in all_event_responses:
+                        continue
                     
-                    for wavelength in sorted(wavelengths_in_event):
-                        key = (event_label, wavelength)
-                        if key not in all_event_responses:
-                            continue
-                        
-                        responses = all_event_responses[key]
-                        
-                        # Interpolate to common time axis
-                        common_responses = []
-                        for time_rel, zscore in responses:
-                            if len(time_rel) > 0 and len(zscore) == len(time_rel):
+                    responses = all_event_responses[event_label]
+                    
+                    # Interpolate to common time axis
+                    common_responses = []
+                    
+                    for time_rel, zscore in responses:
+                        if len(time_rel) > 0:
+                            if len(zscore) == len(time_rel):
                                 interp_zscore = np.interp(common_time, time_rel, zscore)
                                 common_responses.append(interp_zscore)
-                        
-                        if not common_responses:
-                            continue
-                        
-                        # Calculate mean and SEM
-                        mean_response = np.nanmean(common_responses, axis=0)
-                        sem_response = np.nanstd(common_responses, axis=0, ddof=1) / np.sqrt(len(common_responses))
-                        
-                        # Apply vertical spacing
-                        vertical_offset = plot_idx * curve_spacing
-                        
-                        # Get color for this wavelength
-                        color = wavelength_colors.get(wavelength, "#808080")
-                        
-                        ax1.plot(common_time, mean_response + vertical_offset, 
-                                color=color, linewidth=2, label=f"{event_label} {wavelength}nm")
-                        ax1.fill_between(common_time, 
-                                    mean_response + vertical_offset - sem_response, 
-                                    mean_response + vertical_offset + sem_response, 
-                                    color=color, alpha=0.3)
-                        ax1.axhline(0 + vertical_offset, color='#888888', linestyle='--', linewidth=1)
-                        
-                        plot_idx += 1
+                    
+                    if not common_responses:
+                        continue
+                    
+                    # Calculate mean and SEM across all responses (animals and channels)
+                    mean_response = np.nanmean(common_responses, axis=0)
+                    sem_response = np.nanstd(common_responses, axis=0, ddof=1) / np.sqrt(len(common_responses))
+                    
+                    # Apply vertical spacing
+                    vertical_offset = event_idx * curve_spacing
+                    
+                    ax1.plot(common_time, mean_response + vertical_offset, 
+                            color=colors[event_idx], linewidth=2, label=event_label)
+                    ax1.fill_between(common_time, 
+                                mean_response + vertical_offset - sem_response, 
+                                mean_response + vertical_offset + sem_response, 
+                                color=colors[event_idx], alpha=0.3)
+                    ax1.axhline(0 + vertical_offset, color='#888888', linestyle='--', linewidth=1)
                 
                 if sorted_event_labels:
                     ax1.set_xlim(common_time.min(), common_time.max())
                     
-                    # Mark event positions
+                    # Mark event_type 2 positions if they exist in the data
                     for animal_data in group_animals:
                         if 'event_data' in animal_data:
                             events2 = animal_data['event_data'][animal_data['event_data']['Event Type'] == 2]
@@ -2571,17 +2472,17 @@ class BaseAnalyzerApp:
                     ax1.axvline(duration, color='#000000', linestyle='--', linewidth=1, label=f'{event_name} End')      
                     ax1.set_xlabel("Time (s)")
                     ax1.set_ylabel("Z-Score")
-                    ax1.set_title(f"Event-Related Activity - Group {group_name} ({event_name}, Target: {target_signal})")
+                    ax1.set_title(f"Event-Related Activity - Group {group_name} ({event_name})")
                     ax1.grid(False)
                     ax1.legend()
                 
-                # Prepare heatmap data - each wavelength gets its own row
+                # Prepare heatmap data
                 y_position = 0
                 
                 for event_label in sorted_event_labels:
                     event_idx = selected_event_indices[event_label]
                     
-                    # For each animal and wavelength, add to heatmap
+                    # For each animal and channel, add to heatmap
                     for animal_data in group_animals:
                         if 'dff_data' not in animal_data or 'event_data' not in animal_data:
                             continue
@@ -2605,17 +2506,12 @@ class BaseAnalyzerApp:
                         
                         duration = end_time - start_time
                         
-                        target_columns = self.get_target_columns(animal_data, target_signal)
-                        
-                        # For each wavelength in this animal
-                        for channel_num, cols, wavelength in target_columns:
-                            if not cols:
+                        # For each channel in this animal
+                        for channel_num in animal_data['active_channels']:
+                            if channel_num not in animal_data['dff_data']:
                                 continue
                             
-                            dff_key = f"{channel_num}_{wavelength}"
-                            dff_data = animal_data['dff_data'].get(dff_key)
-                            if dff_data is None:
-                                continue
+                            dff_data = animal_data['dff_data'][channel_num]
                             
                             event_time_rel, event_zscore, _ = self.compute_event_zscore_from_dff(
                                 dff_data, time_data, start_time, end_time,
@@ -2634,8 +2530,7 @@ class BaseAnalyzerApp:
                                 if len(event_zscore) == len(event_time_rel):
                                     interp_zscore = np.interp(common_time, event_time_rel, event_zscore)
                                     heatmap_data.append(interp_zscore)
-                                    # Include wavelength in label
-                                    heatmap_y_labels.append(f"{event_label} - {animal_data['animal_id']} CH{channel_num} {wavelength}nm")
+                                    heatmap_y_labels.append(f"{event_label} - {animal_data['animal_id']} CH{channel_num}")
                                     y_position += 1
                     
                     # Add event boundary after all animals and channels for this event
@@ -2654,20 +2549,20 @@ class BaseAnalyzerApp:
                     
                     im = ax2.imshow(heatmap_array, aspect='auto', cmap=colors_map,
                                 extent=[common_time[0], common_time[-1], 0, len(heatmap_data)],
-                                origin='lower')
+                                origin='lower')  # Set origin to lower for bottom-to-top ordering
                     
                     # Add red rectangles for event boundaries
-                    for boundary in event_boundaries[:-1]:
+                    for boundary in event_boundaries[:-1]:  # Skip the last boundary
                         ax2.axhline(y=boundary, color='red', linewidth=2)
                     
                     ax2.set_xlim(common_time.min(), common_time.max())
                     ax2.set_xlabel("Time (s)")
-                    ax2.set_ylabel("Event - Animal - Channel - Wavelength")
+                    ax2.set_ylabel("Event - Animal - Channel")
                     ax2.set_yticks(np.arange(len(heatmap_y_labels)) + 0.5)
-                    ax2.set_yticklabels(heatmap_y_labels, fontsize=8)
-                    ax2.set_title(f"Heatmap - Group {group_name} ({event_name}, Target: {target_signal})")
+                    ax2.set_yticklabels(heatmap_y_labels)
+                    ax2.set_title(f"Heatmap - Group {group_name} ({event_name})")
                     
-                    # Mark shock positions
+                    # Mark event_type 2 positions if they exist in the data
                     for animal_data in group_animals:
                         if 'event_data' in animal_data:
                             events2 = animal_data['event_data'][animal_data['event_data']['Event Type'] == 2]
@@ -2690,32 +2585,32 @@ class BaseAnalyzerApp:
                                     
                                     if start2 >= event1_start and end2 <= event1_end:
                                         rel_start = start2 - event1_start
-                                        ax2.axvline(rel_start, color="#FF0000", linestyle='--', linewidth=1)
+                                        ax2.axvline(rel_start, color="#FF0000", linestyle='--', linewidth=1,
+                                                label='Shock Start' if 'Shock Start' not in ax2.get_legend_handles_labels()[1] else "")
                     
                     # Add colorbar
                     fig.colorbar(im, ax=ax2, orientation='horizontal', pad=0.2, label='Z-Score')
                     
                     # Add vertical lines for event start and end
-                    ax2.axvline(0, color='#000000', linestyle='--', linewidth=1)
-                    ax2.axvline(duration, color='#000000', linestyle='--', linewidth=1)
+                    ax2.axvline(0, color='#000000', linestyle='--', linewidth=1, label=f"{{event_name}} Start")
+                    ax2.axvline(duration, color='#000000', linestyle='--', linewidth=1, label=f'{{event_name}} End')
                 
                 fig.tight_layout()
                 canvas.draw()
             
-            self.set_status(f"Event activity and heatmaps plotted for all groups (target: {target_signal})")
+            self.set_status("Event activity and heatmaps plotted for all groups")
             
         except Exception as e:
             messagebox.showerror("Error", f"Failed to plot: {str(e)}")
             traceback.print_exc()
 
     def plot_experiment_activity(self, all_group_params, preview=False):
-        """Plot experiment-related activity - each wavelength separately"""
+        """Plot experiment-related activity (both dF/F and z-score) with group-based visualization - updated for multi-group support"""
         selected_indices = self.file_listbox.curselection()
         if not selected_indices:
             return
         
         try:
-            # Clear existing tabs
             experiment_activity_tab_index = None
             for i, tab in enumerate(self.plot_notebook.tabs()):
                 tab_text = self.plot_notebook.tab(tab, "text")
@@ -2739,8 +2634,6 @@ class BaseAnalyzerApp:
             experiment_activity_tab = ttk.Frame(self.plot_notebook)
             self.plot_notebook.add(experiment_activity_tab, text="experiment activity")
             
-            target_signal = self.target_signal_var.get()
-
             # Group animals by group
             groups = {}
             for idx in selected_indices:
@@ -2752,13 +2645,6 @@ class BaseAnalyzerApp:
             
             group_notebook = ttk.Notebook(experiment_activity_tab)
             group_notebook.pack(fill="both", expand=True, padx=5, pady=5)
-            
-            # Define wavelength colors
-            wavelength_colors = {
-                '410': '#0000FF',
-                '470': '#00FF00',
-                '560': '#FF0000',
-            }
             
             # Process each group that has parameters
             for group_name, group_params in all_group_params.items():
@@ -2788,9 +2674,9 @@ class BaseAnalyzerApp:
                 event_type = group_params['event_type']
                 event_name = "Sound" if event_type == 1 else "Shock"
                 
-                # Collect all responses for dF/F and Z-score - SEPARATED BY WAVELENGTH
-                all_dff_responses = {}  # key: wavelength, value: list of responses
-                all_zscore_responses = {}  # key: wavelength, value: list of responses
+                # Collect all responses for dF/F and Z-score
+                all_dff_responses = []
+                all_zscore_responses = []
 
                 # Get event indices for selected events
                 selected_event_indices = {}
@@ -2808,9 +2694,13 @@ class BaseAnalyzerApp:
 
                 # Process each selected event
                 for event_label_idx in sorted_event_labels:
+                    
                     event_idx = selected_event_indices[event_label_idx]
                     
                     # Collect all responses for this event (all animals and channels)
+                    event_dff_responses = []
+                    event_zscore_responses = []
+                    
                     for animal_data in group_animals:
                         if 'dff_data' not in animal_data or 'event_data' not in animal_data:
                             continue
@@ -2833,33 +2723,25 @@ class BaseAnalyzerApp:
                             end_time = event['end_time']
                         
                         duration = end_time - start_time
-
-                        target_columns = self.get_target_columns(animal_data, target_signal)
                         
-                        # Process each wavelength separately
-                        for channel_num, cols, wavelength in target_columns:
-                            if not cols:
+                        for channel_num in animal_data['active_channels']:
+                            if channel_num not in animal_data['dff_data']:
                                 continue
                             
-                            dff_key = f"{channel_num}_{wavelength}"
-                            dff_data = animal_data['dff_data'].get(dff_key)
-                            if dff_data is None:
-                                continue
+                            dff_data = animal_data['dff_data'][channel_num]
                             
-                            # Compute event dF/F
                             event_time_rel, event_dff = self.compute_event_dff_from_dff(
                                 dff_data, time_data, start_time, end_time,
                                 group_params['pre_window'], group_params['post_window'], post_flag=True
                             )
 
-                            # Compute event Z-score
                             event_time_rel, event_zscore, _ = self.compute_event_zscore_from_dff(
                                 dff_data, time_data, start_time, end_time,
                                 group_params['pre_window'], group_params['post_window'], post_flag=True
                             )
 
                             if len(event_time_rel) > 0:
-                                # Apply smoothing
+                                # Apply smoothing if requested
                                 if group_params['smooth_method'] == "Moving Average":
                                     kernel = np.ones(group_params['smooth_window']) / group_params['smooth_window']
                                     event_dff_smooth = np.convolve(event_dff, kernel, mode='same')
@@ -2871,55 +2753,50 @@ class BaseAnalyzerApp:
                                     event_dff_smooth = event_dff
                                     event_zscore_smooth = event_zscore
                                 
-                                # Add each wavelength separately
-                                if wavelength not in all_dff_responses:
-                                    all_dff_responses[wavelength] = []
-                                if wavelength not in all_zscore_responses:
-                                    all_zscore_responses[wavelength] = []
-                                
-                                all_dff_responses[wavelength].append((event_time_rel, event_dff_smooth))
-                                all_zscore_responses[wavelength].append((event_time_rel, event_zscore_smooth))
+                                event_dff_responses.append((event_time_rel, event_dff_smooth))
+                                event_zscore_responses.append((event_time_rel, event_zscore_smooth))
+                    
+                                # Store responses for this event
+                                all_dff_responses.extend(event_dff_responses)
+                                all_zscore_responses.extend(event_zscore_responses)
                 
                 if not all_dff_responses:
                     messagebox.showwarning("No Data", f"No valid data to plot for group {group_name}")
                     continue
                 
                 # Calculate common time using fps_fiber
-                all_time_data = []
-                for responses in all_dff_responses.values():
-                    for t, _ in responses:
-                        all_time_data.extend(t)
-                
-                if all_time_data:
-                    max_time = max(all_time_data)
-                    min_time = min(all_time_data)
+                if all_dff_responses:
+                    all_time_data = [t for t, _ in all_dff_responses]
+                    max_time = max([t[-1] for t in all_time_data])
+                    min_time = min([t[0] for t in all_time_data])
                     common_time = np.linspace(min_time, max_time, int((max_time - min_time) * fps_fiber / group_params['downsample_rate']))
                 else:
                     common_time = np.linspace(-group_params['pre_window'], group_params['post_window'], 100)
                 
-                # Plot dF/F for each wavelength separately
-                for wavelength in sorted(all_dff_responses.keys()):
-                    responses = all_dff_responses[wavelength]
-                    
-                    # Interpolate to common time axis
-                    common_dff_responses = []
-                    for time_rel, dff in responses:
-                        if len(time_rel) > 0 and len(dff) == len(time_rel):
-                            interp_dff = np.interp(common_time, time_rel, dff)
-                            common_dff_responses.append(interp_dff)
-                    
-                    if common_dff_responses:
-                        mean_dff = np.nanmean(common_dff_responses, axis=0)
-                        sem_dff = np.nanstd(common_dff_responses, axis=0, ddof=1) / np.sqrt(len(common_dff_responses))
-                        
-                        color = wavelength_colors.get(wavelength, "#808080")
-                        
-                        ax1.plot(common_time, mean_dff, color=color, linestyle='-', linewidth=2, 
-                                label=f'{wavelength}nm (n={len(common_dff_responses)})')
-                        ax1.fill_between(common_time, mean_dff - sem_dff, mean_dff + sem_dff, 
-                                        color=color, alpha=0.2)
+                # Combine all event_label, animal and channel responses for mean±sem calculation
+                # For dF/F
+                common_dff_responses = []
+                for time_rel, dff in all_dff_responses:
+                    if len(time_rel) > 0 and len(dff) == len(time_rel):
+                        interp_dff = np.interp(common_time, time_rel, dff)
+                        common_dff_responses.append(interp_dff)
                 
-                # Mark event positions for dF/F plot
+                # For Z-score
+                common_zscore_responses = []
+                for time_rel, zscore in all_zscore_responses:
+                    if len(time_rel) > 0 and len(zscore) == len(time_rel):
+                        interp_zscore = np.interp(common_time, time_rel, zscore)
+                        common_zscore_responses.append(interp_zscore)
+                
+                # Plot dF/F (all event_label, animal and channel combined)
+                if common_dff_responses:
+                    mean_dff = np.nanmean(common_dff_responses, axis=0)
+                    sem_dff = np.nanstd(common_dff_responses, axis=0, ddof=1) / np.sqrt(len(common_dff_responses))
+                    
+                    ax1.plot(common_time, mean_dff, color="#80ff00", linestyle='-', linewidth=2, label='All Events Combined')
+                    ax1.fill_between(common_time, mean_dff - sem_dff, mean_dff + sem_dff, color="#80ff00", alpha=0.2)
+                
+                # Mark event_type 2 positions if they exist in the data
                 for animal_data in group_animals:
                     if 'event_data' in animal_data:
                         events2 = animal_data['event_data'][animal_data['event_data']['Event Type'] == 2]
@@ -2950,33 +2827,21 @@ class BaseAnalyzerApp:
                 ax1.axhline(0, color='#888888', linestyle='--', linewidth=1)
                 ax1.set_xlim(common_time.min(), common_time.max())
                 ax1.set_ylabel("ΔF/F")
-                ax1.set_title(f"Experiment-Related Activity (ΔF/F) - Group {group_name} ({event_name}, Target: {target_signal})")
+                ax1.set_title(f"Experiment-Related Activity (ΔF/F) - Group {group_name} ({event_name})")
                 ax1.grid(False)
-                ax1.legend()
+                # Only add legend if there are shock events
+                if any(animal_data['event_data']['Event Type'].isin([2]).any() for animal_data in group_animals if 'event_data' in animal_data):
+                    ax1.legend()
                 
-                # Plot Z-score for each wavelength separately
-                for wavelength in sorted(all_zscore_responses.keys()):
-                    responses = all_zscore_responses[wavelength]
+                # Plot Z-score (all event_label, animal and channel combined)
+                if common_zscore_responses:
+                    mean_zscore = np.nanmean(common_zscore_responses, axis=0)
+                    sem_zscore = np.nanstd(common_zscore_responses, axis=0, ddof=1) / np.sqrt(len(common_zscore_responses))
                     
-                    # Interpolate to common time axis
-                    common_zscore_responses = []
-                    for time_rel, zscore in responses:
-                        if len(time_rel) > 0 and len(zscore) == len(time_rel):
-                            interp_zscore = np.interp(common_time, time_rel, zscore)
-                            common_zscore_responses.append(interp_zscore)
-                    
-                    if common_zscore_responses:
-                        mean_zscore = np.nanmean(common_zscore_responses, axis=0)
-                        sem_zscore = np.nanstd(common_zscore_responses, axis=0, ddof=1) / np.sqrt(len(common_zscore_responses))
-                        
-                        color = wavelength_colors.get(wavelength, "#808080")
-                        
-                        ax2.plot(common_time, mean_zscore, color=color, linestyle='-', linewidth=2, 
-                                label=f'{wavelength}nm (n={len(common_zscore_responses)})')
-                        ax2.fill_between(common_time, mean_zscore - sem_zscore, mean_zscore + sem_zscore, 
-                                        color=color, alpha=0.2)
+                    ax2.plot(common_time, mean_zscore, color="#80ff00", linestyle='-', linewidth=2, label='All Events Combined')
+                    ax2.fill_between(common_time, mean_zscore - sem_zscore, mean_zscore + sem_zscore, color="#80ff00", alpha=0.2)
                 
-                # Mark event positions for Z-score plot
+                # Mark event_type 2 positions if they exist in the data
                 for animal_data in group_animals:
                     if 'event_data' in animal_data:
                         events2 = animal_data['event_data'][animal_data['event_data']['Event Type'] == 2]
@@ -3008,14 +2873,16 @@ class BaseAnalyzerApp:
                 ax2.set_xlim(common_time.min(), common_time.max())
                 ax2.set_xlabel("Time (s)")
                 ax2.set_ylabel("Z-Score")
-                ax2.set_title(f"Experiment-Related Activity (Z-Score) - Group {group_name} ({event_name}, Target: {target_signal})")
+                ax2.set_title(f"Experiment-Related Activity (Z-Score) - Group {group_name} ({event_name})")
                 ax2.grid(False)
-                ax2.legend()
+                # Only add legend if there are shock events
+                if any(animal_data['event_data']['Event Type'].isin([2]).any() for animal_data in group_animals if 'event_data' in animal_data):
+                    ax2.legend()
                 
                 fig.tight_layout()
                 canvas.draw()
             
-            self.set_status(f"Experiment activity plotted for all groups (target: {target_signal})")
+            self.set_status("Experiment activity plotted for all groups")
             
         except Exception as e:
             messagebox.showerror("Error", f"Failed to plot: {str(e)}")
@@ -3037,8 +2904,6 @@ class BaseAnalyzerApp:
                     has_type2 = True
                     break
         
-        target_signal = self.target_signal_var.get()
-
         # Group animals by group
         groups = {}
         for idx in selected_indices:
@@ -3123,16 +2988,11 @@ class BaseAnalyzerApp:
                         time_col = animal_data['channels']['time']
                         time_data = animal_data['preprocessed_data'][time_col] - animal_data['video_start_fiber']
                         
-                        target_columns = self.get_target_columns(animal_data, target_signal)
-
-                        for channel_num, cols, wavelength in target_columns:
-                            if not cols:
+                        for channel_num in animal_data['active_channels']:
+                            if channel_num not in animal_data['dff_data']:
                                 continue
                             
-                            dff_key = f"{channel_num}_{wavelength}"
-                            dff_data = animal_data['dff_data'].get(dff_key)
-                            if dff_data is None:
-                                continue
+                            dff_data = animal_data['dff_data'][channel_num]
                             
                             for event_idx, (_, event) in enumerate(events_type1.iterrows()):
                                 if animal_data.get('event_time_absolute', False):
@@ -3226,8 +3086,6 @@ class BaseAnalyzerApp:
                                         'Group': group,
                                         'Animal ID': animal_id,
                                         'Channel': channel_num,
-                                        'Wavelength': wavelength,
-                                        'Target Signal': target_signal,
                                         'Event Index': event_idx + 1,
                                         'Window': window_name,
                                         'Mean(dff)': mean_val_dff,
@@ -3255,7 +3113,7 @@ class BaseAnalyzerApp:
                 if save_path:
                     df.to_csv(save_path, index=False, float_format='%.10f')
                     messagebox.showinfo("Success", f"Statistics exported to:\n{save_path}")
-                    self.set_status(f"Statistics exported: {len(all_stats)} records (target: {target_signal})")
+                    self.set_status(f"Statistics exported: {len(all_stats)} records")
                     dialog.destroy()
                 
             except Exception as e:
@@ -3352,13 +3210,10 @@ class FreezingAnalyzerApp(BaseAnalyzerApp):
         
         signal_frame = ttk.Frame(self.step2_frame)
         signal_frame.pack(fill="x", padx=5, pady=5)
-
-        available_targets = self.get_available_target_signals()
-        if not available_targets:
-            available_targets = ["470", "560"]
         
         ttk.Label(signal_frame, text="Target Signal:").grid(row=0, column=0, sticky="w")
-        target_menu = ttk.OptionMenu(signal_frame, self.target_signal_var, available_targets[0], *available_targets)
+        target_options = ["470", "560"]
+        target_menu = ttk.OptionMenu(signal_frame, self.target_signal_var, "470", *target_options)
         target_menu.grid(row=0, column=1, padx=5, pady=2, sticky="ew")
         
         ttk.Label(signal_frame, text="Reference Signal:").grid(row=1, column=0, sticky="w")
@@ -3426,19 +3281,6 @@ class FreezingAnalyzerApp(BaseAnalyzerApp):
                   command=self.apply_preprocessing).pack(pady=10)
         
         self.reference_signal_var.trace_add("write", self.update_baseline_ui)
-
-    def get_available_target_signals(self):
-        all_combinations = set()
-        
-        for animal_data in self.multi_animal_data:
-            if 'wavelength_combinations' in animal_data:
-                for combo in animal_data['wavelength_combinations']:
-                    all_combinations.add(combo)
-            elif 'available_wavelengths' in animal_data:
-                for wl in animal_data['available_wavelengths']:
-                    all_combinations.add(wl)
-        
-        return sorted(all_combinations, key=lambda x: (len(x), x))
 
     def update_baseline_ui(self, *args):
         if self.reference_signal_var.get() == "baseline":
