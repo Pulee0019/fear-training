@@ -99,6 +99,11 @@ class FLIRCamera:
         self._frame_count = 0
         self._fps_last_time = time.time()
 
+        # Timestamp logging
+        self.frame_timestamps = []
+        self.timestamp_file = None
+        self.timestamp_writer = None
+
         # Initialize FLIR camera system
         self.system = PySpin.System.GetInstance()
         self.cam_list = self.system.GetCameras()
@@ -265,6 +270,17 @@ class FLIRCamera:
             if not self.out.isOpened():
                 print("[ERROR] Cannot open video writer")
                 return
+            
+            # Initialize timestamp logging
+            timestamp_path = save_path.replace('.avi', '_timestamps.csv')
+            try:
+                self.timestamp_file = open(timestamp_path, 'w', newline='')
+                self.timestamp_writer = csv.writer(self.timestamp_file)
+                self.timestamp_writer.writerow(['Frame_Index', 'Timestamp', 'Relative_Time'])
+                self.frame_timestamps = []
+                print(f"Timestamp file created: {timestamp_path}")
+            except Exception as e:
+                print(f"[ERROR] Failed to create timestamp file: {e}")
 
             # Set recording state and mark start
             self.recording = True
@@ -308,6 +324,8 @@ class FLIRCamera:
 
             next_record_time = time.time()
             
+            frame_index = 0
+
             # Main acquisition loop
             while self.previewing or self.recording:
                 # Get next image
@@ -343,6 +361,16 @@ class FLIRCamera:
                             next_record_time += record_interval
                             if not self.frame_queue.full():
                                 self.frame_queue.put((time.time(), frame.copy()))
+
+                                # Log timestamp
+                                current_timestamp = time.time()
+                                relative_time = current_timestamp - self.start_time
+                                self.frame_timestamps.append((frame_index, current_timestamp, relative_time))
+                                
+                                if self.timestamp_writer:
+                                    self.timestamp_writer.writerow([frame_index, f"{current_timestamp:.6f}", f"{relative_time:.6f}"])
+                                
+                                frame_index += 1
 
         except Exception as e:
             print("[ERROR] Acquisition failed:", e)
@@ -405,6 +433,17 @@ class FLIRCamera:
         # Release video writer
         if hasattr(self, "out") and self.out:
             self.out.release()
+
+        # Close timestamp file
+        if self.timestamp_file:
+            try:
+                self.timestamp_file.close()
+                print(f"Timestamp file saved for camera {self.camera_id}")
+            except Exception as e:
+                print(f"[ERROR] Failed to close timestamp file: {e}")
+            finally:
+                self.timestamp_file = None
+                self.timestamp_writer = None
 
         return end_time
 
@@ -483,6 +522,10 @@ class HKCamera:
         self.current_fps = 0.0
         self.fps_counter = 0
         self.last_fps_time = time.time()
+
+        self.frame_timestamps = []
+        self.timestamp_file = None
+        self.timestamp_writer = None
 
     @staticmethod
     def list_devices():
@@ -616,6 +659,16 @@ class HKCamera:
         if ret != MV_OK:
             print(f"[ERROR] Failed to start recording for path {save_path}: {ret}")
 
+        timestamp_path = save_path.replace('.avi', '_timestamps.csv')
+        try:
+            self.timestamp_file = open(timestamp_path, 'w', newline='')
+            self.timestamp_writer = csv.writer(self.timestamp_file)
+            self.timestamp_writer.writerow(['Frame_Index', 'Timestamp', 'Relative_Time'])
+            self.frame_timestamps = []
+            print(f"Timestamp file created: {timestamp_path}")
+        except Exception as e:
+            print(f"[ERROR] Failed to create timestamp file: {e}")
+
         print(f"Recording start for camera {self.camera_id}")
         self.start_time = time.time()
         self.mark_ttl_on()
@@ -681,6 +734,14 @@ class HKCamera:
             ret = self.cam.MV_CC_InputOneFrame(stInput)
             if ret != MV_OK:
                 print(f"[ERROR] Failed to input frame: {ret}")
+
+            current_timestamp = time.time()
+            relative_time = current_timestamp - start_time
+            self.frame_timestamps.append((self.frame_counter, current_timestamp, relative_time))
+            
+            if self.timestamp_writer:
+                self.timestamp_writer.writerow([self.frame_counter, f"{current_timestamp:.6f}", f"{relative_time:.6f}"])
+
             self.frame_counter += 1
 
             self.fps_counter += 1
@@ -703,6 +764,17 @@ class HKCamera:
         self.running = False
         self.recording = False
         self.cam.MV_CC_StopRecord()
+
+        if self.timestamp_file:
+            try:
+                self.timestamp_file.close()
+                print(f"Timestamp file saved for camera {self.camera_id}")
+            except Exception as e:
+                print(f"[ERROR] Failed to close timestamp file: {e}")
+            finally:
+                self.timestamp_file = None
+                self.timestamp_writer = None
+
         print(f"Recording stopped for camera {self.camera_id}")
         return self.end_time
     
@@ -740,9 +812,14 @@ class OpenCVCamera:
         self.fps_counter = 0
         self.last_fps_time = time.time()  # ???
         
-        self.width = 1280
-        self.height = 720
+        self.width = 640
+        self.height = 480
         self.fps = 30.0
+
+        self.frame_timestamps = []
+        self.timestamp_files = [None] * num_channels
+        self.timestamp_writers = [None] * num_channels
+        self.frame_indices = [0] * num_channels
 
         self.recording_threads = [None] * num_channels
         self.frame_queues = [queue.Queue(maxsize=1000) for _ in range(num_channels)]
@@ -859,6 +936,20 @@ class OpenCVCamera:
                     f"VideoWriter failed. Path: {save_path}, "
                     f"FPS: {self.fps}, Size: ({self.width}, {self.height})"
                 )
+            
+        for i, save_path in enumerate(save_paths):
+            timestamp_path = save_path.replace('.mp4', '_timestamps.csv').replace('.avi', '_timestamps.csv')
+            try:
+                self.timestamp_files[i] = open(timestamp_path, 'w', newline='')
+                self.timestamp_writers[i] = csv.writer(self.timestamp_files[i])
+                self.timestamp_writers[i].writerow(['Frame_Index', 'Timestamp', 'Relative_Time'])
+                self.frame_indices[i] = 0
+                print(f"Timestamp file created: {timestamp_path}")
+            except Exception as e:
+                print(f"[ERROR] Failed to create timestamp file for channel {i}: {e}")
+
+        self.frame_timestamps = []
+
         print(f"Recording start for camera {self.camera_id}")
         self.start_time = time.time()
         self.mark_ttl_on()
@@ -878,6 +969,19 @@ class OpenCVCamera:
                     
                 try:
                     self.video_writers[channel].write(frame)
+
+                    current_timestamp = time.time()
+                    relative_time = current_timestamp - self.start_time
+                    
+                    if self.timestamp_writers[channel]:
+                        self.timestamp_writers[channel].writerow([
+                            self.frame_indices[channel], 
+                            f"{current_timestamp:.6f}", 
+                            f"{relative_time:.6f}"
+                        ])
+                    
+                    self.frame_indices[channel] += 1
+
                 except Exception as e:
                     print(f"[ERROR] Failed to write frame: {e}")
                     break
@@ -908,7 +1012,18 @@ class OpenCVCamera:
                     self.frame_queues[i].get_nowait()
                 except:
                     break
-                
+        
+        for i in range(self.num_channels):
+            if self.timestamp_files[i]:
+                try:
+                    self.timestamp_files[i].close()
+                    print(f"Timestamp file saved for camera {self.camera_id}, channel {i}")
+                except Exception as e:
+                    print(f"[WARN] Error closing timestamp file: {e}")
+                finally:
+                    self.timestamp_files[i] = None
+                    self.timestamp_writers[i] = None
+
         print(f"Recording stopped for camera {self.camera_id}")
         return end_time
     
@@ -1560,7 +1675,7 @@ class ExperimentGUI:
         self.exposure_time = tk.DoubleVar(value=4000.0)
         self.resolution_choice = tk.StringVar(value="1280x1024")
         self.record_rate = tk.DoubleVar(value=90.0)
-        self.sample_rate = tk.DoubleVar(value=120.0)
+        self.sample_rate = tk.DoubleVar(value=90.0)
         self.pixel_type = PixelType_Mono8
         self.selected_audio_device = None
         self.user_filename_prefix = tk.StringVar(value="experiment")
