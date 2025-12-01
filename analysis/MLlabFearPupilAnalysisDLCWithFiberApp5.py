@@ -1186,7 +1186,7 @@ class BaseAnalyzerApp:
                                 label=f'CH{channel_num} {wavelength}nm baseline corrected')
                             
                             ax.plot(time_data, baseline_pred, 
-                                color=color, linestyle='--', alpha=0.5,
+                                color='k', linestyle='--', alpha=0.5,
                                 label=f'CH{channel_num} {wavelength}nm baseline fit')
                     
                     ax.set_title(f"Baseline Correction - {animal_id} ({model_type} model, Target: {target_signal})")
@@ -1370,6 +1370,11 @@ class BaseAnalyzerApp:
                                 color=color, linewidth=2, alpha=0.5,
                                 label=f'CH{channel_num} {target_wavelength}nm raw')
 
+                        # Plot fitted reference
+                        ax.plot(time_data, animal_data['preprocessed_data'][fitted_ref_col], 
+                            color='k', linestyle='--', alpha=0.5,
+                            label=f'CH{channel_num} {target_wavelength}nm fitted ref')
+                        
                         # Plot motion corrected
                         ax.plot(time_data, animal_data['preprocessed_data'][motion_corrected_col], 
                             color=color, linewidth=2, alpha=0.8,

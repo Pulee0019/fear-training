@@ -2,26 +2,30 @@
 """ 
 Created on Tue Jul 8 19:18:40 2025 
 
-Edit on Mon Jul 21 18:46:08 2025
+Edit on Mon Jul 21 18:46:08 2025 by pulee.
 
 Preview FPS = 5, Multi FLIR Camera, Opencv Cam Time correct.
 
-Edit on Tue Jul 22 14:04:16 2025
+Edit on Tue Jul 22 14:04:16 2025 by pulee.
 
 Change timestamp from relative to absolute for event log.
 Multi Opencv, HIK Camera, HIK Cam Time correct.
 
-Edit on Wed Jul 23 11:16:48 2025
+Edit on Wed Jul 23 11:16:48 2025 by pulee.
 Opencv Cam(IR) Time incorrect, the id is not unique.
 
-Edit on Sat Sep 6 11:37:30 2025
+Edit on Sat Sep 6 11:37:30 2025 by pulee.
 Add the function of optogenetics stimulation.
 
-Edit on Sun Sep 14 20:11:50 2025(Add for the synchronization of imaging)
+Edit on Sun Sep 14 20:11:50 2025(Add for the synchronization of imaging) by pulee.
 
 Send the 5V voltage through ao0 to synchronize the signal of running and imaging.
 
 Record the video start time and running start time, synchronize the signal of behaviour and running.
+
+Edit on Mon Nov 28 16:30:21 2025 by pulee.
+
+Add the function to save the timestamp of each frame into csv file for FLIR HIK and Opencv camera.
 
 @author: Pulee 
 """ 
@@ -1645,7 +1649,7 @@ class ExperimentGUI:
         # Initialize GUI components and variables
         self.root = root
         self.root.title("Experiment Setting")
-        self.root.geometry("2200x1200")
+        self.root.state('zoomed')
 
         self.arduino_port = arduino_port
         self.daq_device = daq_device
@@ -1685,6 +1689,13 @@ class ExperimentGUI:
         self.toggle_sound_shock_optogenetics = tk.BooleanVar(value=False)
         self.stimulation_locations = []
         self.speed_encoder_gui = None
+
+        # Optogenetics parameters
+        self.opto_frequency = tk.DoubleVar(value=20.0)  # Hz
+        self.opto_pulse_width = tk.DoubleVar(value=10.0)  # ms
+        self.opto_duration = tk.DoubleVar(value=1000.0)  # ms
+        self.opto_delay = tk.DoubleVar(value=0.0)  # s (相对于block开始的延时)
+        self.stimulation_settings = []
 
         # Setup UI components
         self.setup_ui()
@@ -1765,28 +1776,49 @@ class ExperimentGUI:
         self.shock_lead = tk.StringVar(value="2")
         ttk.Entry(self.shock_frame, textvariable=self.shock_lead, width=14).grid(row=1, column=1)
 
-        self.stimulation_frame = ttk.LabelFrame(self.config_frame, text="Stimulation Locations")
+        self.stimulation_frame = ttk.LabelFrame(self.config_frame, text="Optogenetic Stimulation Settings")
         self.stimulation_frame.grid(row=4, column=0, columnspan=2, sticky="ew", pady=5)
 
         stimulation_list_frame = ttk.Frame(self.stimulation_frame)
         stimulation_list_frame.pack(fill="both", expand=True, padx=5, pady=5)
 
-        self.stimulation_listbox = tk.Listbox(stimulation_list_frame, height=2)
+        stimulation_y_scrollbar = ttk.Scrollbar(stimulation_list_frame, orient="vertical")
+        stimulation_y_scrollbar.pack(side="right", fill="y")
+
+        stimulation_x_scrollbar = ttk.Scrollbar(stimulation_list_frame, orient="horizontal")
+        stimulation_x_scrollbar.pack(side="bottom", fill="x")
+
+        self.stimulation_listbox = tk.Listbox(
+            stimulation_list_frame,
+            height=3,
+            yscrollcommand=stimulation_y_scrollbar.set,
+            xscrollcommand=stimulation_x_scrollbar.set
+        )
         self.stimulation_listbox.pack(side="left", fill="both", expand=True)
 
-        stimulation_scrollbar = ttk.Scrollbar(stimulation_list_frame, orient="vertical", command=self.stimulation_listbox.yview)
-        stimulation_scrollbar.pack(side="right", fill="y")
-        self.stimulation_listbox.configure(yscrollcommand=stimulation_scrollbar.set)
+        stimulation_y_scrollbar.config(command=self.stimulation_listbox.yview)
+        stimulation_x_scrollbar.config(command=self.stimulation_listbox.xview)
+
+        # Optogenetic stimulation parameters
+        stimulation_params_frame = ttk.LabelFrame(self.stimulation_frame, text="Stimulation Parameters")
+        stimulation_params_frame.pack(fill="x", padx=5, pady=5)
+
+        ttk.Label(stimulation_params_frame, text="Frequency (Hz):").grid(row=0, column=0, padx=5, pady=2, sticky="e")
+        ttk.Entry(stimulation_params_frame, textvariable=self.opto_frequency, width=10).grid(row=0, column=1, padx=5, pady=2, sticky="w")
+        ttk.Label(stimulation_params_frame, text="Pulse Width (ms):").grid(row=1, column=0, padx=5, pady=2, sticky="e")
+        ttk.Entry(stimulation_params_frame, textvariable=self.opto_pulse_width, width=10).grid(row=1, column=1, padx=5, pady=2, sticky="w")
+
+        ttk.Label(stimulation_params_frame, text="Duration (ms):").grid(row=2, column=0, padx=5, pady=2, sticky="e")
+        ttk.Entry(stimulation_params_frame, textvariable=self.opto_duration, width=10).grid(row=2, column=1, padx=5, pady=2, sticky="w")
+        ttk.Label(stimulation_params_frame, text="Delay (s):").grid(row=3, column=0, padx=5, pady=2, sticky="e")
+        ttk.Entry(stimulation_params_frame, textvariable=self.opto_delay, width=10).grid(row=3, column=1, padx=5, pady=2, sticky="w")
 
         stimulation_control_frame = ttk.Frame(self.stimulation_frame)
         stimulation_control_frame.pack(fill="x", padx=5, pady=5)
 
-        ttk.Label(stimulation_control_frame, text="Location (s):").grid(row=0, column=0, padx=5, pady=5, sticky="w")
-        self.stimulation_location = tk.DoubleVar(value=0.0)
-        ttk.Entry(stimulation_control_frame, textvariable=self.stimulation_location, width=15).grid(row=0, column=1, padx=5, pady=5, sticky="w")
-
-        ttk.Button(stimulation_control_frame, text="Add Stimulation", command=self.add_stimulation).grid(row=1, column=0, padx=5, pady=5, sticky="w")
-        ttk.Button(stimulation_control_frame, text="Delete Stimulation", command=self.delete_stimulation).grid(row=1, column=1, padx=5, pady=5, sticky="w")
+        ttk.Button(stimulation_control_frame, text="Add Sti", command=self.add_stimulation).grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        ttk.Button(stimulation_control_frame, text="Delete Sti", command=self.delete_stimulation).grid(row=0, column=1, padx=5, pady=5, sticky="w")
+        ttk.Button(stimulation_control_frame, text="Test Sti", command=self.test_stimulation).grid(row=1, column=0, padx=5, pady=5, sticky="w")
 
         self.stimulation_frame.grid_remove()
 
@@ -2149,34 +2181,114 @@ class ExperimentGUI:
         else:
             max_duration = 30.0
         
-        location = self.stimulation_location.get()
-        if 0 <= location <= max_duration:
-            self.stimulation_locations.append(location)
-            self.stimulation_locations.sort()
+        try:
+            frequency = self.opto_frequency.get()
+            pulse_width = self.opto_pulse_width.get()
+            duration = self.opto_duration.get()
+            delay = self.opto_delay.get()
+            
+            if frequency <= 0 or frequency > 500:
+                messagebox.showerror("Error", "Frequency must be between 0 and 500 Hz")
+                return
+            
+            max_pulse_width = (1000.0 / frequency)  # ms
+            if pulse_width <= 0 or pulse_width > max_pulse_width:
+                messagebox.showerror("Error", f"Pulse width must be between 0 and {max_pulse_width:.2f} ms (1/frequency)")
+                return
+            
+            if duration <= 0:
+                messagebox.showerror("Error", "Duration must be positive")
+                return
+            
+            if delay < 0 or delay > max_duration:
+                messagebox.showerror("Error", f"Delay must be between 0 and {max_duration:.1f} seconds")
+                return
+            
+            stim_end_time = delay + (duration / 1000.0)
+            if stim_end_time > max_duration:
+                messagebox.showerror("Error", f"Stimulation (delay + duration) exceeds block duration ({max_duration:.1f}s)")
+                return
+            
+            stim_setting = {
+                'frequency': frequency,
+                'pulse_width': pulse_width,
+                'duration': duration,
+                'delay': delay
+            }
+            self.stimulation_settings.append(stim_setting)
             self.update_stimulation_list()
-        else:
-            messagebox.showerror("Error", f"Stimulation location must be between 0 and {max_duration:.1f} seconds")
+            
+        except ValueError:
+            messagebox.showerror("Error", "Please enter valid numerical values for all parameters")
+            return
 
     def delete_stimulation(self):
         selection = self.stimulation_listbox.curselection()
         if selection:
             index = selection[0]
-            del self.stimulation_locations[index]
+            del self.stimulation_settings[index]
             self.update_stimulation_list()
 
     def update_stimulation_list(self):
         self.stimulation_listbox.delete(0, tk.END)
-        for location in self.stimulation_locations:
-            self.stimulation_listbox.insert(tk.END, f"{location:.2f}s")
+        for i, setting in enumerate(self.stimulation_settings):
+            display_text = (f"#{i+1}: {setting['frequency']:.1f}Hz, "
+                        f"{setting['pulse_width']:.1f}ms pulse, "
+                        f"{setting['duration']:.1f}ms duration, "
+                        f"{setting['delay']:.1f}s delay")
+            self.stimulation_listbox.insert(tk.END, display_text)
 
+    def test_stimulation(self):
+        try:
+            frequency = self.opto_frequency.get()
+            pulse_width = self.opto_pulse_width.get()
+            duration = self.opto_duration.get()
+            
+            if frequency <= 0 or frequency > 500:
+                messagebox.showerror("Error", "Frequency must be between 0 and 500 Hz")
+                return
+            
+            max_pulse_width = (1000.0 / frequency)
+            if pulse_width <= 0 or pulse_width > max_pulse_width:
+                messagebox.showerror("Error", f"Pulse width must be between 0 and {max_pulse_width:.2f} ms")
+                return
+            
+            if duration <= 0:
+                messagebox.showerror("Error", "Duration must be positive")
+                return
+            
+            self.send_opto_stimulation(frequency, pulse_width, duration, 0)
+            messagebox.showinfo("Test", "Test stimulation sent to Arduino")
+            
+        except ValueError:
+            messagebox.showerror("Error", "Please enter valid numerical values")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to send test stimulation: {e}")
+            
+    def send_opto_stimulation(self, frequency, pulse_width, duration, delay):
+        try:
+            if self.arduino and self.arduino.is_open:
+                if delay > 0:
+                    time.sleep(delay)
+                
+                pulse_width_us = int(pulse_width * 1000)
+                command = f"O,{int(frequency)},{pulse_width_us},{int(duration)}\n"
+                
+                self.arduino.write(command.encode())
+                print(f"Optogenetic stimulation sent: {frequency}Hz, {pulse_width}ms pulse, {duration}ms duration, {delay}s delay")
+            else:
+                print("Arduino not connected, cannot send stimulation")
+        except Exception as e:
+            print(f"Error sending optogenetic stimulation: {e}")
+            
     def test_speaker(self):
         self.play_sound(1.0)
 
     def add_block(self):
         btype = self.block_type.get()
         
-        if "Optogenetics" in btype and not self.stimulation_locations:
-            messagebox.showerror("Error", "Please add at least one stimulation location for optogenetics blocks")
+        if "Optogenetics" in btype and not self.stimulation_settings:
+            messagebox.showerror("Error", "Please add at least one stimulation setting for optogenetics blocks")
             return
             
         if btype == "Sound+Shock" or btype == "Sound+Shock+Optogenetics":
@@ -2188,7 +2300,7 @@ class ExperimentGUI:
                 return
                 
             if sound_dur <= 0 or shock_lead < 0:
-                messagebox.showerror("Error", "Sound duration and shock duration must be positive, and shock start time must be non-negative")
+                messagebox.showerror("Error", "Sound duration and shock duration must be positive")
                 return
                 
             if shock_lead > sound_dur:
@@ -2196,12 +2308,15 @@ class ExperimentGUI:
                 return
                 
             if "Optogenetics" in btype:
-                self.timeline.append((btype, sound_dur, shock_lead, self.stimulation_locations.copy()))
-                self.timeline_listbox.insert(tk.END, f"{btype} - Sound {sound_dur:.1f}s, Shock start {shock_lead:.1f}s before end, Stimulations: {len(self.stimulation_locations)}")
+                self.timeline.append((btype, sound_dur, shock_lead, self.stimulation_settings.copy()))
+                self.timeline_listbox.insert(tk.END, 
+                    f"{btype} - Sound {sound_dur:.1f}s, Shock start {shock_lead:.1f}s before end, "
+                    f"Stimulations: {len(self.stimulation_settings)}")
             else:
                 self.timeline.append((btype, sound_dur, shock_lead))
-                self.timeline_listbox.insert(tk.END, f"{btype} - Sound {sound_dur:.1f}s, Shock start {shock_lead:.1f}s before end")
-                
+                self.timeline_listbox.insert(tk.END, 
+                    f"{btype} - Sound {sound_dur:.1f}s, Shock start {shock_lead:.1f}s before end")
+                    
         elif btype == "Wait+Optogenetics":
             try:
                 dur = float(self.block_duration.get())
@@ -2209,9 +2324,10 @@ class ExperimentGUI:
                 messagebox.showerror("Error", "Please enter a valid duration")
                 return
                 
-            self.timeline.append((btype, dur, self.stimulation_locations.copy()))
-            self.timeline_listbox.insert(tk.END, f"{btype} - {dur:.1f}s, Stimulations: {len(self.stimulation_locations)}")
-            
+            self.timeline.append((btype, dur, self.stimulation_settings.copy()))
+            self.timeline_listbox.insert(tk.END, 
+                f"{btype} - {dur:.1f}s, Stimulations: {len(self.stimulation_settings)}")
+                
         elif btype == "Sound+Optogenetics":
             try:
                 dur = float(self.block_duration.get())
@@ -2219,9 +2335,10 @@ class ExperimentGUI:
                 messagebox.showerror("Error", "Please enter a valid duration")
                 return
                 
-            self.timeline.append((btype, dur, self.stimulation_locations.copy()))
-            self.timeline_listbox.insert(tk.END, f"{btype} - {dur:.1f}s, Stimulations: {len(self.stimulation_locations)}")
-            
+            self.timeline.append((btype, dur, self.stimulation_settings.copy()))
+            self.timeline_listbox.insert(tk.END, 
+                f"{btype} - {dur:.1f}s, Stimulations: {len(self.stimulation_settings)}")
+                
         else:  # Wait or Sound
             try:
                 dur = float(self.block_duration.get())
@@ -2231,8 +2348,8 @@ class ExperimentGUI:
                 
             self.timeline.append((btype, dur))
             self.timeline_listbox.insert(tk.END, f"{btype} - {dur:.1f}s")
-            
-        self.stimulation_locations = []
+        
+        self.stimulation_settings = []
         self.stimulation_listbox.delete(0, tk.END)
 
     def remove_selected_block(self):
@@ -2257,14 +2374,14 @@ class ExperimentGUI:
             
             if "Optogenetics" in btype:
                 if btype == "Wait+Optogenetics" or btype == "Sound+Optogenetics":
-                    _, dur, locations = entry
+                    _, dur, settings = entry
                     self.block_duration.set(str(dur))
-                    self.stimulation_locations = locations.copy()
+                    self.stimulation_settings = [s.copy() for s in settings]
                 elif btype == "Sound+Shock+Optogenetics":
-                    _, sound_dur, shock_lead, locations = entry
+                    _, sound_dur, shock_lead, settings = entry
                     self.sound_duration.set(str(sound_dur))
                     self.shock_lead.set(str(shock_lead))
-                    self.stimulation_locations = locations.copy()
+                    self.stimulation_settings = [s.copy() for s in settings]
                     
                 self.update_stimulation_list()
             elif btype == "Sound+Shock":
@@ -2753,11 +2870,14 @@ class ExperimentGUI:
                 
             elif btype == "Wait+Optogenetics":
                 dur = entry[1]
-                stim_locations = entry[2]
+                stim_settings = entry[2]
                 
-                for stim_time in stim_locations:
-                    if stim_time < dur:
-                        threading.Timer(stim_time, self.trigger_laser).start()
+                for setting in stim_settings:
+                    delay = setting['delay']
+                    if delay < dur:
+                        threading.Timer(delay, self.send_opto_stimulation, 
+                                    args=(setting['frequency'], setting['pulse_width'], 
+                                        setting['duration'], 0)).start()
                 
                 time.sleep(dur)
                 event_end = time.time()
@@ -2771,11 +2891,14 @@ class ExperimentGUI:
                 
             elif btype == "Sound+Optogenetics":
                 dur = entry[1]
-                stim_locations = entry[2]
+                stim_settings = entry[2]
                 
-                for stim_time in stim_locations:
-                    if stim_time < dur:
-                        threading.Timer(stim_time, self.trigger_laser).start()
+                for setting in stim_settings:
+                    delay = setting['delay']
+                    if delay < dur:
+                        threading.Timer(delay, self.send_opto_stimulation,
+                                    args=(setting['frequency'], setting['pulse_width'],
+                                        setting['duration'], 0)).start()
                 
                 self.play_sound(dur)
                 event_end = time.time()
@@ -2808,12 +2931,15 @@ class ExperimentGUI:
             elif btype == "Sound+Shock+Optogenetics":
                 sound_dur = entry[1]
                 shock_lead = entry[2]
-                stim_locations = entry[3]
+                stim_settings = entry[3]
                 shock_start = max(0, sound_dur - shock_lead)
 
-                for stim_time in stim_locations:
-                    if stim_time < sound_dur:
-                        threading.Timer(stim_time, self.trigger_laser).start()
+                for setting in stim_settings:
+                    delay = setting['delay']
+                    if delay < sound_dur:
+                        threading.Timer(delay, self.send_opto_stimulation,
+                                    args=(setting['frequency'], setting['pulse_width'],
+                                        setting['duration'], 0)).start()
 
                 sample_rate = int(4 * 4000)
                 t = np.arange(0, sound_dur, 1.0 / sample_rate)
@@ -2830,7 +2956,7 @@ class ExperimentGUI:
                 sd.wait()
 
                 event_end = time.time()
-            
+
                 self.event_log.append((event_start, event_end, 5))
                 self.event_log.append((shock_event_start, shock_event_end, 2))
             
@@ -2951,11 +3077,13 @@ class ExperimentGUI:
             self.root.destroy()
             os._exit(0)
     
-    def trigger_laser(self):
+    def trigger_laser(self, frequency=20.0, pulse_width=10.0, duration=1000.0):
         try:
             if self.arduino and self.arduino.is_open:
-                self.arduino.write('L'.encode())
-                print("Laser stimulation triggered")
+                pulse_width_us = int(pulse_width * 1000)
+                command = f"O,{int(frequency)},{pulse_width_us},{int(duration)}\n"
+                self.arduino.write(command.encode())
+                print(f"Laser stimulation triggered: {frequency}Hz, {pulse_width}ms, {duration}ms")
         except Exception as e:
             print(f"Laser stimulation error: {e}")
 
