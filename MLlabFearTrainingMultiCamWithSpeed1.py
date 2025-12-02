@@ -1305,6 +1305,13 @@ class SpeedEncoderGUI:
             
             task.StopTask()
             task.ClearTask()
+
+            reset_task = Task()
+            reset_task.CreateAOVoltageChan(f"{self.device}/ao0", "", -10.0, 10.0, 10348, None)
+            reset_task.StartTask()
+            reset_task.WriteAnalogScalarF64(True, 0.001, 0.0, None)
+            reset_task.StopTask()
+            reset_task.ClearTask()
             
             print(f"Sent 5V signal for {duration} seconds on {self.device}/ao0")
             
