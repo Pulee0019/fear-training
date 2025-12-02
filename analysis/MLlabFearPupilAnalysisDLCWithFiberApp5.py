@@ -4,10 +4,6 @@ Created on Fri Sep 5 20:50:50 2025
 
 This custom code involved the analysis of freezing and freezing + fiber through the process of deeplabcut.
 
-Edit on Tue Dec 2 09:19:3 2025
-
-Add the function to statistic and plot the single animal, single channel and single event experiment-activity.
-
 @author: Pulee 
 """
 
