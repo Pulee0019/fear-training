@@ -27,6 +27,10 @@ Edit on Mon Nov 28 16:30:21 2025 by pulee.
 
 Add the function to save the timestamp of each frame into csv file for FLIR HIK and Opencv camera.
 
+Edit on Wed Dec 3 20:33:59 2025 by pulee.
+
+Add the function to save the log of optogenetics stimulation time into csv file.
+
 @author: Pulee 
 """ 
 
@@ -1701,7 +1705,7 @@ class ExperimentGUI:
         self.opto_frequency = tk.DoubleVar(value=20.0)  # Hz
         self.opto_pulse_width = tk.DoubleVar(value=10.0)  # ms
         self.opto_duration = tk.DoubleVar(value=1000.0)  # ms
-        self.opto_delay = tk.DoubleVar(value=0.0)  # s (相对于block开始的延时)
+        self.opto_delay = tk.DoubleVar(value=0.0)  # s
         self.stimulation_settings = []
 
         # Setup UI components
@@ -2823,6 +2827,7 @@ class ExperimentGUI:
         self.recording_label.config(text="Status: Running Experiment")
         self.event_log = []
         self.timestamp_log = []
+        self.opto_genetic_log = []
 
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         prefix = self.user_filename_prefix.get()
@@ -2885,6 +2890,7 @@ class ExperimentGUI:
                         threading.Timer(delay, self.send_opto_stimulation, 
                                     args=(setting['frequency'], setting['pulse_width'], 
                                         setting['duration'], 0)).start()
+                    self.opto_genetic_log.append((event_start, setting['frequency'], setting['pulse_width'], setting['duration'], setting['delay']))
                 
                 time.sleep(dur)
                 event_end = time.time()
@@ -2906,6 +2912,7 @@ class ExperimentGUI:
                         threading.Timer(delay, self.send_opto_stimulation,
                                     args=(setting['frequency'], setting['pulse_width'],
                                         setting['duration'], 0)).start()
+                    self.opto_genetic_log.append((event_start, setting['frequency'], setting['pulse_width'], setting['duration'], setting['delay']))
                 
                 self.play_sound(dur)
                 event_end = time.time()
@@ -2947,6 +2954,7 @@ class ExperimentGUI:
                         threading.Timer(delay, self.send_opto_stimulation,
                                     args=(setting['frequency'], setting['pulse_width'],
                                         setting['duration'], 0)).start()
+                    self.opto_genetic_log.append((event_start, setting['frequency'], setting['pulse_width'], setting['duration'], setting['delay']))
 
                 sample_rate = int(4 * 4000)
                 t = np.arange(0, sound_dur, 1.0 / sample_rate)
@@ -3009,6 +3017,18 @@ class ExperimentGUI:
             print(f"Timestamp log saved: {timestamp_file}")
         except Exception as e:
             print(f"Failed to save timestamp log: {e}")
+
+        optogenetics_file = os.path.join(self.save_dir, f"{prefix}_optogenetics_{timestamp}.csv")
+        try:
+            with open(optogenetics_file, 'w', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow(["start_time(for delay)", "frequency(Hz)", "pulse_width(ms)", "duration(ms)", "delay(s)"])
+                for start_time, freq, pulse_width, duration, delay in self.opto_genetic_log:
+                    writer.writerow([f"{start_time:.6f}", freq, pulse_width, duration, delay])
+
+            print(f"Optogenetics settings saved: {optogenetics_file}")
+        except Exception as e:
+            print(f"Failed to save optogenetics settings: {e}")
 
     def play_sound(self, duration, freq=4000, amp=0.5):
         sample_rate = 4 * freq
