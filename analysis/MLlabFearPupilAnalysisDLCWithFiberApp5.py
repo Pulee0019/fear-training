@@ -4,6 +4,10 @@ Created on Fri Sep 5 20:50:50 2025
 
 This custom code involved the analysis of freezing and freezing + fiber through the process of deeplabcut.
 
+Edit on Sat Dec 6 10:11:23 2025
+
+Adjust the event code process to include 3, 4, 5 for optogenetics
+
 @author: Pulee 
 """
 
@@ -869,7 +873,7 @@ class BaseAnalyzerApp:
                                 color = "#b6b6b6"
                             else:
                                 color = "#fcb500"
-                                
+
                             start_time = row[start_col] - video_start
                             end_time = row[end_col] - video_start
                             ax.axvspan(start_time, end_time, color=color, alpha=0.3)
