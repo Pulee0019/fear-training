@@ -863,7 +863,13 @@ class BaseAnalyzerApp:
                         video_start = animal_data['video_start_fiber']
                         
                         for _, row in event_data.iterrows():
-                            color = "#b6b6b6" if row['Event Type'] == 0 else "#fcb500"
+                            if row['Event Type'] == 0:
+                                color = "#b6b6b6"
+                            elif row['Event Type'] == 3:
+                                color = "#b6b6b6"
+                            else:
+                                color = "#fcb500"
+                                
                             start_time = row[start_col] - video_start
                             end_time = row[end_col] - video_start
                             ax.axvspan(start_time, end_time, color=color, alpha=0.3)
@@ -1029,7 +1035,13 @@ class BaseAnalyzerApp:
                         video_start = animal_data['video_start_fiber']
                         
                         for _, row in event_data.iterrows():
-                            color = "#b6b6b6" if row['Event Type'] == 0 else "#fcb500"
+                            if row['Event Type'] == 0:
+                                color = "#b6b6b6"
+                            elif row['Event Type'] == 3:
+                                color = "#b6b6b6"
+                            else:
+                                color = "#fcb500"
+
                             start_time = row[start_col] - video_start
                             end_time = row[end_col] - video_start
                             ax.axvspan(start_time, end_time, color=color, alpha=0.3)
@@ -1209,7 +1221,13 @@ class BaseAnalyzerApp:
                         video_start = animal_data['video_start_fiber']
                         
                         for _, row in event_data.iterrows():
-                            color = "#b6b6b6" if row['Event Type'] == 0 else "#fcb500"
+                            if row['Event Type'] == 0:
+                                color = "#b6b6b6"
+                            elif row['Event Type'] == 3:
+                                color = "#b6b6b6"
+                            else:
+                                color = "#fcb500"
+
                             start_time = row[start_col] - video_start
                             end_time = row[end_col] - video_start
                             ax.axvspan(start_time, end_time, color=color, alpha=0.3)
@@ -1400,7 +1418,13 @@ class BaseAnalyzerApp:
                         video_start = animal_data['video_start_fiber']
                         
                         for _, row in event_data.iterrows():
-                            color = "#b6b6b6" if row['Event Type'] == 0 else "#fcb500"
+                            if row['Event Type'] == 0:
+                                color = "#b6b6b6"
+                            elif row['Event Type'] == 3:
+                                color = "#b6b6b6"
+                            else:
+                                color = "#fcb500"
+
                             start_time = row[start_col] - video_start
                             end_time = row[end_col] - video_start
                             ax.axvspan(start_time, end_time, color=color, alpha=0.3)
@@ -1598,7 +1622,13 @@ class BaseAnalyzerApp:
                         video_start = animal_data['video_start_fiber']
                         
                         for _, row in event_data.iterrows():
-                            color = "#b6b6b6" if row['Event Type'] == 0 else "#fcb500"
+                            if row['Event Type'] == 0:
+                                color = "#b6b6b6"
+                            elif row['Event Type'] == 3:
+                                color = "#b6b6b6"
+                            else:
+                                color = "#fcb500"
+
                             start_time = row[start_col] - video_start
                             end_time = row[end_col] - video_start
                             ax.axvspan(start_time, end_time, color=color, alpha=0.3)
@@ -1744,7 +1774,13 @@ class BaseAnalyzerApp:
                         video_start = animal_data['video_start_fiber']
                         
                         for _, row in event_data.iterrows():
-                            color = "#b6b6b6" if row['Event Type'] == 0 else "#fcb500"
+                            if row['Event Type'] == 0:
+                                color = "#b6b6b6"
+                            elif row['Event Type'] == 3:
+                                color = "#b6b6b6"
+                            else:
+                                color = "#fcb500"
+
                             start_time = row[start_col] - video_start
                             end_time = row[end_col] - video_start
                             ax.axvspan(start_time, end_time, color=color, alpha=0.3)
@@ -3604,7 +3640,7 @@ class FreezingAnalyzerApp(BaseAnalyzerApp):
             freezing_results = []
             for _, event in event_data.iterrows():
                 event_type = event['Event Type']
-                if event_type not in [0, 1]:
+                if event_type not in [0, 1, 3, 4]:  # Only process wait, sound, wait-optogenetics, sound-optogenetics
                     continue
                 
                 start_frame = int(event['start_time'] * fps)
@@ -3676,13 +3712,20 @@ class FreezingAnalyzerApp(BaseAnalyzerApp):
         for group_name, group_animals in groups.items():
             if group_animals and 'event_data' in group_animals[0]:
                 event_data = group_animals[0]['event_data']
-                # Filter out event_type == 2 and only include event_type 0 and 1
+                # Filter out event_type == 2 and event_type == 5
                 filtered_events = []
                 original_indices = []
                 for idx, row in event_data.iterrows():
                     event_type = row['Event Type']
-                    if event_type in [0, 1]:  # Only include wait and sound events, exclude shock (type 2)
-                        label = "wait" if event_type == 0 else "sound"
+                    if event_type in [0, 1, 3, 4]:  # Only include wait and sound events, exclude shock (type 2)
+                        if event_type == 0:
+                            label = "wait"
+                        elif event_type == 1:
+                            label = "sound"
+                        elif event_type == 3:
+                            label = "wait-optogenetics"
+                        elif event_type == 4:
+                            label = "sound-optogenetics"
                         filtered_events.append(f"{label}{math.ceil((idx+1)/2)}")
                         original_indices.append(idx)
                 group_events[group_name] = filtered_events
@@ -3886,8 +3929,12 @@ class FreezingAnalyzerApp(BaseAnalyzerApp):
                                     color = "#0400fc"
                                 elif event_type == 2:
                                     color = "#ff0000"
-                                else:
+                                elif event_type == 3:
                                     color = "#00ff00"
+                                elif event_type == 4:
+                                    color = "#ff00ff"
+                                elif event_type == 5:
+                                    color = "#ffff00"
                                 
                                 ax.add_patch(plt.Rectangle(
                                     (event['start_time'], y_pos - 0.4),
@@ -3916,9 +3963,32 @@ class FreezingAnalyzerApp(BaseAnalyzerApp):
                             start_event_type = event_data.iloc[start_original_idx]['Event Type']
                             end_event_type = event_data.iloc[end_original_idx]['Event Type']
                             
-                            start_event_label = "wait" if start_event_type == 0 else "sound" if start_event_type == 1 else "shock" if start_event_type == 2 else "other"
-                            end_event_label = "wait" if end_event_type == 0 else "sound" if end_event_type == 1 else "shock" if end_event_type == 2 else "other"
+                            if start_event_type == 0:
+                                start_event_label = "wait"
+                            elif start_event_type == 1:
+                                start_event_label = "sound"
+                            elif start_event_type == 2:
+                                start_event_label = "shock"
+                            elif start_event_type == 3:
+                                start_event_label = "wait-optogenetics"
+                            elif start_event_type == 4:
+                                start_event_label = "sound-optogenetics"
+                            elif start_event_type == 5:
+                                start_event_label = "shock-optogenetics"
                             
+                            if end_event_type == 0:
+                                end_event_label = "wait"
+                            elif end_event_type == 1:
+                                end_event_label = "sound"
+                            elif end_event_type == 2:
+                                end_event_label = "shock"
+                            elif end_event_type == 3:
+                                end_event_label = "wait-optogenetics"
+                            elif end_event_type == 4:
+                                end_event_label = "sound-optogenetics"
+                            elif end_event_type == 5:
+                                end_event_label = "shock-optogenetics"
+
                             ax.set_title(f"Freezing Raster Plot - Group {group_name}\n(Events {start_event_label}{math.ceil((start_original_idx+1)/3)} to {end_event_label}{math.ceil((end_original_idx+1)/3)})")
                         else:
                             ax.set_title(f"Freezing Raster Plot - Group {group_name}")
@@ -3998,7 +4068,15 @@ class FreezingAnalyzerApp(BaseAnalyzerApp):
                         continue
                     for i, res in enumerate(animal_data['freezing_results']):
                         event_type = res['event_type']
-                        label = f"wait{math.ceil((i+1)/2)}" if event_type == 0 else f"sound{math.ceil((i+1)/2)}"
+                        if event_type == 0:
+                            label = f"wait{math.ceil((i+1)/2)}"
+                        elif event_type == 1:
+                            label = f"sound{math.ceil((i+1)/2)}"
+                        elif event_type == 3:
+                            label = f"wait-optogenetics{math.ceil((i+1)/2)}"
+                        elif event_type == 4:
+                            label = f"sound-optogenetics{math.ceil((i+1)/2)}"
+
                         group_data.setdefault(label, []).append(res['freeze_percent'])
 
                 labels_order = list(group_data.keys())
@@ -4047,7 +4125,15 @@ class FreezingAnalyzerApp(BaseAnalyzerApp):
                     all_percenatges = []
                     for i, result in enumerate(animal_data['freezing_results']):
                         event_type = result['event_type']
-                        label = f"wait{math.ceil((i+1)/2)}" if event_type == 0 else f"sound{math.ceil((i+1)/2)}"
+                        if event_type == 0:
+                            label = f"wait{math.ceil((i+1)/2)}"
+                        elif event_type == 1:
+                            label = f"sound{math.ceil((i+1)/2)}"
+                        elif event_type == 3:
+                            label = f"wait-optogenetics{math.ceil((i+1)/2)}"
+                        elif event_type == 4:
+                            label = f"sound-optogenetics{math.ceil((i+1)/2)}"
+
                         if label not in all_labels:
                             all_labels.append(label)
                         all_percenatges.append(result['freeze_percent'])
@@ -4207,7 +4293,13 @@ class FreezingAnalyzerApp(BaseAnalyzerApp):
                         video_start = self.multi_animal_data[selected_indices[0]]['video_start_fiber']
                         
                         for _, row in event_data.iterrows():
-                            color = "#b6b6b6" if row['Event Type'] == 0 else "#fcb500"
+                            if row['Event Type'] == 0:
+                                color = "#b6b6b6"
+                            elif row['Event Type'] == 3:
+                                color = "#b6b6b6"
+                            else:
+                                color = "#fcb500"
+                                
                             start_time = row['start_time']
                             end_time = row['end_time']
                             

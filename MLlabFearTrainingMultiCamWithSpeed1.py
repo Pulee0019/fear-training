@@ -2972,8 +2972,8 @@ class ExperimentGUI:
 
                 event_end = time.time()
 
-                self.event_log.append((event_start, event_end, 5))
-                self.event_log.append((shock_event_start, shock_event_end, 2))
+                self.event_log.append((event_start, event_end, 4))
+                self.event_log.append((shock_event_start, shock_event_end, 5))
             
             i += 1
 
